@@ -1,0 +1,70 @@
+name: portal_assoc
+description: "Uma ferramenta para conectar empresas a bons negócios."
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.2.6 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+
+  cupertino_icons: ^1.0.2
+  dio: ^5.8.0+1
+  provider: ^6.1.4
+  go_router: ^14.8.1
+  validators: ^3.0.0
+  shared_preferences: ^2.5.3
+  toastification: ^3.0.2
+  lucide_icons: ^0.257.0
+  file_picker: ^10.1.2
+  excel: ^4.0.6
+  csv: ^6.0.0
+  dropdown_button2: ^2.3.9
+  shimmer: ^3.0.0
+  fl_chart: ^0.71.0
+  path_provider: ^2.1.5
+  share_plus: ^11.0.0
+  syncfusion_flutter_xlsio: ^29.2.11
+  file_saver: ^0.2.14
+  firebase_core: ^3.13.0
+  animated_custom_dropdown: ^3.1.1
+  collection: ^1.19.1
+  flutter_svg: ^2.0.7
+  http: ^1.4.0
+  flutter_multi_formatter: ^2.13.10
+  currency_text_input_formatter: ^2.3.0
+  socket_io_client: ^3.1.4
+  web_socket_channel: ^3.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  generate: true
+  assets:
+    - assets/template_email.txt
+    - assets/images/
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: fonts/inter/Inter-Medium.ttf
+        - asset: fonts/inter/Inter-Regular.ttf
+        - asset: fonts/inter/Inter-Light.ttf
+        - asset: fonts/inter/Inter-Bold.ttf
+
+flutter_gen:
+  synthetic-package: false
+
+dependency_overrides:
+  intl: ^0.20.2
