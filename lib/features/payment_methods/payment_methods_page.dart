@@ -1,10 +1,69 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:portal_assoc/features/payment_methods/payment_methods_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/state/app_state.dart';
 import 'payment_methods_controller.dart';
 import 'payment_methods_repository.dart';
 import 'payment_methods_usecase.dart';
+
+// ─── Design tokens ────────────────────────────────────────────────────────────
+
+class _DS {
+  static const Color ink = Color(0xFF1C1C1E);
+  static const Color slate = Color(0xFF555A6A);
+  static const Color steel = Color(0xFF6B6F7E);
+  static const Color stone = Color(0xFF8E91A0);
+  static const Color canvas = Color(0xFFFFFFFF);
+  static const Color surface = Color(0xFFF7F8FA);
+  static const Color hairline = Color(0xFFE0E2E8);
+  static const Color hairlineSoft = Color(0xFFEEF0F3);
+  static const Color success = Color(0xFF00B473);
+  static const Color successSubtle = Color(0xFFDCFCE7);
+
+  static const double rXl = 16.0;
+  static const double rLg = 12.0;
+  static const double rFull = 9999.0;
+  static const double s3 = 12.0;
+  static const double s4 = 16.0;
+  static const double s5 = 20.0;
+  static const double s6 = 24.0;
+}
+
+// ─── Payment type catalog (type = integer stored in DB) ───────────────────────
+
+class _PaymentType {
+  final int id;
+  final String label;
+  final String description;
+  final IconData icon;
+  final Color accent;
+
+  const _PaymentType({
+    required this.id,
+    required this.label,
+    required this.description,
+    required this.icon,
+    required this.accent,
+  });
+}
+
+const List<_PaymentType> _kCatalog = [
+  _PaymentType(id: 1, label: 'Cartão de Crédito', description: 'Visa, Mastercard, Elo e demais bandeiras', icon: Icons.credit_card, accent: Color(0xFF4262FF)),
+  _PaymentType(id: 2, label: 'Cartão de Débito', description: 'Débito direto na conta bancária', icon: Icons.payment, accent: Color(0xFF00B473)),
+  _PaymentType(id: 3, label: 'PIX', description: 'Transferência instantânea, disponível 24/7', icon: Icons.pix, accent: Color(0xFF00BCD4)),
+  _PaymentType(id: 4, label: 'Dinheiro', description: 'Pagamento em espécie na entrega', icon: Icons.money, accent: Color(0xFF22C55E)),
+  _PaymentType(id: 5, label: 'Vale Refeição', description: 'Alelo, Sodexo, VR e similares', icon: Icons.card_giftcard, accent: Color(0xFFFF9800)),
+  _PaymentType(id: 6, label: 'Transferência', description: 'TED e DOC via banco tradicional', icon: Icons.account_balance, accent: Color(0xFF9C27B0)),
+  _PaymentType(id: 7, label: 'Carteira Digital', description: 'PicPay, Mercado Pago e similares', icon: Icons.wallet, accent: Color(0xFFE91E63)),
+  _PaymentType(id: 8, label: 'PayPal', description: 'Pagamentos internacionais via PayPal', icon: Icons.payments_outlined, accent: Color(0xFF003087)),
+  _PaymentType(id: 9, label: 'Boleto', description: 'Boleto bancário com vencimento definido', icon: Icons.receipt_long, accent: Color(0xFFFF5722)),
+  _PaymentType(id: 10, label: 'Apple Pay', description: 'Pagamento rápido para dispositivos Apple', icon: Icons.apple, accent: Color(0xFF1C1C1E)),
+  _PaymentType(id: 11, label: 'Google Pay', description: 'Pagamento integrado com o Google', icon: Icons.g_mobiledata, accent: Color(0xFF4285F4)),
+  _PaymentType(id: 12, label: 'Criptomoedas', description: 'Bitcoin, Ethereum e outras criptos', icon: Icons.currency_bitcoin, accent: Color(0xFFF7931A)),
+];
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 class PaymentMethodsPage extends StatefulWidget {
   const PaymentMethodsPage({super.key});
@@ -14,505 +73,125 @@ class PaymentMethodsPage extends StatefulWidget {
 }
 
 class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
-  late final PaymentMethodsController controller = PaymentMethodsController(
+  late final PaymentMethodsController _ctrl = PaymentMethodsController(
     StartState(),
     PaymentMethodsUseCase(PaymentMethodsRepository()),
   );
 
-  final TextEditingController _searchController = TextEditingController();
-  List<PaymentMethodsModel> _activePaymentMethods = [];
-  List<Map<String, dynamic>> _filteredAvailableMethods = [];
-
-  final List<Map<String, dynamic>> _availablePaymentMethods = [
-    {
-      'type': 'credit_card',
-      'label': 'Cartão de Crédito',
-      'description': 'Aceite pagamentos com cartões de crédito das principais bandeiras',
-      'icon': Icons.credit_card,
-      'color': Color(0xFF2196F3),
-    },
-    {
-      'type': 'debit_card',
-      'label': 'Cartão de Débito',
-      'description': 'Pagamentos instantâneos com cartão de débito',
-      'icon': Icons.payment,
-      'color': Color(0xFF4CAF50),
-    },
-    {
-      'type': 'pix',
-      'label': 'PIX',
-      'description': 'Transferências instantâneas via PIX, disponível 24/7',
-      'icon': Icons.pix,
-      'color': Color(0xFF00BCD4),
-    },
-    {
-      'type': 'cash',
-      'label': 'Dinheiro',
-      'description': 'Pagamento em espécie na entrega ou retirada',
-      'icon': Icons.money,
-      'color': Color(0xFF4CAF50),
-    },
-    {
-      'type': 'voucher',
-      'label': 'Vale Refeição',
-      'description': 'Aceite vouchers e vales alimentação',
-      'icon': Icons.card_giftcard,
-      'color': Color(0xFFFF9800),
-    },
-    {
-      'type': 'bank_transfer',
-      'label': 'Transferência Bancária',
-      'description': 'Transferência bancária tradicional (TED/DOC)',
-      'icon': Icons.account_balance,
-      'color': Color(0xFF9C27B0),
-    },
-    {
-      'type': 'digital_wallet',
-      'label': 'Carteira Digital',
-      'description': 'Pagamentos via carteiras digitais como PicPay, Mercado Pago',
-      'icon': Icons.wallet,
-      'color': Color(0xFFE91E63),
-    },
-    {
-      'type': 'paypal',
-      'label': 'PayPal',
-      'description': 'Aceite pagamentos internacionais via PayPal',
-      'icon': Icons.payments_outlined,
-      'color': Color(0xFF003087),
-    },
-    {
-      'type': 'boleto',
-      'label': 'Boleto Bancário',
-      'description': 'Gere boletos para pagamento em bancos e lotéricas',
-      'icon': Icons.receipt_long,
-      'color': Color(0xFFFF5722),
-    },
-    {
-      'type': 'apple_pay',
-      'label': 'Apple Pay',
-      'description': 'Pagamentos rápidos e seguros para usuários Apple',
-      'icon': Icons.apple,
-      'color': Color(0xFF000000),
-    },
-    {
-      'type': 'google_pay',
-      'label': 'Google Pay',
-      'description': 'Pagamentos integrados com Google Pay',
-      'icon': Icons.g_mobiledata,
-      'color': Color(0xFF4285F4),
-    },
-    {
-      'type': 'cryptocurrency',
-      'label': 'Criptomoedas',
-      'description': 'Aceite Bitcoin, Ethereum e outras criptomoedas',
-      'icon': Icons.currency_bitcoin,
-      'color': Color(0xFFF7931A),
-    },
-  ];
+  List<PaymentMethodsModel> _active = [];
+  final Set<int> _loadingTypes = {};
 
   @override
   void initState() {
     super.initState();
-    controller.findAll();
-    _filteredAvailableMethods = List.from(_availablePaymentMethods);
-    _searchController.addListener(_filterMethods);
+    _ctrl.findAll();
+    _ctrl.stateFindAll.addListener(_onFindAll);
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _ctrl.stateFindAll.removeListener(_onFindAll);
     super.dispose();
   }
 
-  void _filterMethods() {
-    final query = _searchController.text.toLowerCase();
-    setState(() {
-      if (query.isEmpty) {
-        _filteredAvailableMethods = List.from(_availablePaymentMethods);
-      } else {
-        _filteredAvailableMethods = _availablePaymentMethods.where((method) {
-          final label = method['label'].toString().toLowerCase();
-          final description = method['description'].toString().toLowerCase();
-          return label.contains(query) || description.contains(query);
-        }).toList();
-      }
-    });
+  void _onFindAll() {
+    final state = _ctrl.stateFindAll.value;
+    if (state is SuccessState && mounted) {
+      setState(() {
+        _active = (state.data as List).cast<PaymentMethodsModel>();
+        _loadingTypes.clear();
+      });
+    }
   }
 
-  bool _isMethodActive(String type) {
-    return _activePaymentMethods.any((method) => method.type == type);
-  }
+  bool _isActive(int typeId) => _active.any((m) => m.type == typeId);
 
-  PaymentMethodsModel? _getActiveMethod(String type) {
+  PaymentMethodsModel? _getActive(int typeId) {
     try {
-      return _activePaymentMethods.firstWhere((method) => method.type == type);
-    } catch (e) {
+      return _active.firstWhere((m) => m.type == typeId);
+    } catch (_) {
       return null;
     }
   }
 
-  void _togglePaymentMethod(Map<String, dynamic> method) async {
-    final type = method['type'] as String;
-    final activeMethod = _getActiveMethod(type);
+  Future<void> _toggle(int typeId) async {
+    if (_loadingTypes.contains(typeId)) return;
+    setState(() => _loadingTypes.add(typeId));
 
-    if (activeMethod != null) {
-      // Desativar método
-      controller.delete(activeMethod.id!);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.remove_circle, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text('${method['label']} removido'),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.orange[700],
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    final existing = _getActive(typeId);
+    if (existing != null) {
+      _ctrl.delete(existing.id!);
     } else {
       final prefs = await SharedPreferences.getInstance();
-      int? company = prefs.getInt('company') ?? 0;
-      final newMethod = PaymentMethodsModel.fromJson({
-        'company_id': company,
-        'type': type,
-        'label': method['label'] as String,
-        'description': method['description'] as String,
-        'active': true,
-      });
-      controller.create(newMethod, context);
+      final companyId = prefs.getInt('company') ?? 0;
+      final def = _kCatalog.firstWhere((c) => c.id == typeId);
+      if (!mounted) return;
+      // ignore: use_build_context_synchronously
+      _ctrl.create(
+        PaymentMethodsModel.fromJson({
+          'company_id': companyId,
+          'type': typeId,
+          'label': def.label,
+          'description': def.description,
+          'active': true,
+        }),
+        context,
+      );
     }
   }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header Section
-          Container(
-            padding: const EdgeInsets.all(24),
-            color: Colors.white,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.payment,
-                        color: Theme.of(context).primaryColor,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Métodos de Pagamento',
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          ValueListenableBuilder<StateApp>(
-                            valueListenable: controller.stateFindAll,
-                            builder: (context, state, _) {
-                              if (state is SuccessState) {
-                                final activeCount = (state.data as List<PaymentMethodsModel>).where((m) => m.active == true).length;
-                                return Text(
-                                  '$activeCount ${activeCount == 1 ? 'método ativo' : 'métodos ativos'}',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey[600],
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                );
-                              }
-                              return const Text(
-                                'Selecione as formas de pagamento aceitas',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey,
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                // Search Bar
-                TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Buscar método de pagamento...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                            },
-                          )
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey.withValues(alpha: 0.1),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Content Section
-          Expanded(
-            child: ValueListenableBuilder<StateApp>(
-              valueListenable: controller.stateFindAll,
-              builder: (context, state, _) {
-                if (state is StartState || state is LoadingState) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                } else if (state is SuccessState) {
-                  _activePaymentMethods = state.data as List<PaymentMethodsModel>;
-
-                  if (_filteredAvailableMethods.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.search_off,
-                            size: 64,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Nenhum método encontrado',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Tente ajustar sua pesquisa',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        // Calcula quantos cards cabem por linha baseado na largura disponível
-                        final cardWidth = 280.0;
-                        final spacing = 16.0;
-                        final crossAxisCount = (constraints.maxWidth / (cardWidth + spacing)).floor().clamp(1, 4);
-
-                        return Wrap(
-                          spacing: spacing,
-                          runSpacing: spacing,
-                          children: _filteredAvailableMethods.map((method) {
-                            final isActive = _isMethodActive(method['type'] as String);
-
-                            return SizedBox(
-                              width: (constraints.maxWidth - (spacing * (crossAxisCount - 1))) / crossAxisCount,
-                              child: _PaymentMethodCard(
-                                method: method,
-                                isActive: isActive,
-                                onToggle: () => _togglePaymentMethod(method),
-                              ),
-                            );
-                          }).toList(),
-                        );
-                      },
-                    ),
-                  );
-                } else if (state is ErrorState) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: Colors.red[300],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Erro ao carregar métodos',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          state.message,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[500],
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 24),
-                        ElevatedButton.icon(
-                          onPressed: () => controller.findAll(),
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Tentar Novamente'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 16,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                } else {
-                  return const SizedBox.shrink();
-                }
-              },
-            ),
-          ),
+          _buildHeader(),
+          Expanded(child: _buildContent()),
         ],
       ),
     );
   }
-}
 
-class _PaymentMethodCard extends StatelessWidget {
-  final Map<String, dynamic> method;
-  final bool isActive;
-  final VoidCallback onToggle;
-
-  const _PaymentMethodCard({
-    required this.method,
-    required this.isActive,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = method['color'] as Color;
-
-    return InkWell(
-      onTap: onToggle,
-      borderRadius: BorderRadius.circular(16),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: isActive ? Colors.white : Colors.grey[100],
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isActive ? color : Colors.grey.withValues(alpha: 0.3),
-            width: isActive ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+  Widget _buildHeader() {
+    final loaded = _ctrl.stateFindAll.value is SuccessState;
+    final count = _active.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(_DS.s6, _DS.s6, _DS.s6, _DS.s5),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isActive ? color.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    method['icon'] as IconData,
-                    color: isActive ? color : Colors.grey,
-                    size: 28,
+                Text(
+                  'Formas de Pagamento',
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: _DS.ink,
+                    letterSpacing: -0.5,
                   ),
                 ),
-                const Spacer(),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: isActive ? color.withValues(alpha: 0.1) : Colors.transparent,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isActive ? color : Colors.grey.withValues(alpha: 0.5),
-                      width: 2,
-                    ),
-                  ),
-                  child: Icon(
-                    isActive ? Icons.check : Icons.add,
-                    color: isActive ? color : Colors.grey,
-                    size: 16,
-                  ),
+                SizedBox(height: 2),
+                Text(
+                  'Ative os métodos aceitos pelo seu estabelecimento',
+                  style: TextStyle(fontSize: 13, color: _DS.stone, height: 1.4),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              method['label'] as String,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isActive ? Colors.black87 : Colors.grey[600],
-              ),
-            ),
-            // const SizedBox(height: 8),
-            // Text(
-            //   method['description'] as String,
-            //   style: TextStyle(
-            //     fontSize: 13,
-            //     color: isActive ? Colors.grey[600] : Colors.grey[500],
-            //     height: 1.4,
-            //   ),
-            //   maxLines: 3,
-            //   overflow: TextOverflow.ellipsis,
-            // ),
-            const SizedBox(height: 16),
+          ),
+          if (loaded) ...[
+            const SizedBox(width: _DS.s4),
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 6,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: BoxDecoration(
-                color: isActive ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(20),
+                color: count > 0 ? _DS.successSubtle : _DS.surface,
+                borderRadius: BorderRadius.circular(_DS.rFull),
+                border: Border.all(
+                  color: count > 0 ? _DS.success.withValues(alpha: 0.35) : _DS.hairline,
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -521,23 +200,298 @@ class _PaymentMethodCard extends StatelessWidget {
                     width: 6,
                     height: 6,
                     decoration: BoxDecoration(
-                      color: isActive ? Colors.green : Colors.grey,
+                      color: count > 0 ? _DS.success : _DS.stone,
                       shape: BoxShape.circle,
                     ),
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    isActive ? 'Ativo' : 'Inativo',
+                    count == 1 ? '1 ativo' : '$count ativos',
                     style: TextStyle(
-                      color: isActive ? Colors.green[700] : Colors.grey[600],
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      color: count > 0 ? _DS.success : _DS.stone,
                     ),
                   ),
                 ],
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    return ValueListenableBuilder<StateApp>(
+      valueListenable: _ctrl.stateFindAll,
+      builder: (_, state, __) {
+        if (state is StartState || state is LoadingState) return _buildSkeleton();
+        if (state is ErrorState) return _buildError(state.message);
+        return _buildGrid();
+      },
+    );
+  }
+
+  Widget _buildSkeleton() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(_DS.s6),
+      child: LayoutBuilder(
+        builder: (_, constraints) {
+          final cols = _colCount(constraints.maxWidth);
+          final w = (constraints.maxWidth - (_DS.s4 * (cols - 1))) / cols;
+          return Wrap(
+            spacing: _DS.s4,
+            runSpacing: _DS.s4,
+            children: List.generate(
+              12,
+              (_) => SizedBox(
+                width: w,
+                child: Container(
+                  height: 148,
+                  decoration: BoxDecoration(
+                    color: _DS.hairlineSoft,
+                    borderRadius: BorderRadius.circular(_DS.rXl),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildGrid() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(_DS.s6),
+      child: LayoutBuilder(
+        builder: (_, constraints) {
+          final cols = _colCount(constraints.maxWidth);
+          final w = (constraints.maxWidth - (_DS.s4 * (cols - 1))) / cols;
+          return Wrap(
+            spacing: _DS.s4,
+            runSpacing: _DS.s4,
+            children: _kCatalog.map((type) {
+              return SizedBox(
+                width: w,
+                child: _PaymentCard(
+                  type: type,
+                  active: _isActive(type.id),
+                  loading: _loadingTypes.contains(type.id),
+                  onTap: () => _toggle(type.id),
+                ),
+              );
+            }).toList(),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildError(String message) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(LucideIcons.alertCircle, size: 40, color: _DS.stone),
+          const SizedBox(height: _DS.s3),
+          const Text(
+            'Erro ao carregar métodos',
+            style: TextStyle(fontSize: 15, color: _DS.ink),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            message,
+            style: const TextStyle(fontSize: 13, color: _DS.steel),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: _DS.s5),
+          FilledButton.icon(
+            onPressed: () => _ctrl.findAll(),
+            icon: const Icon(LucideIcons.refreshCw, size: 15),
+            label: const Text('Tentar novamente'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _DS.ink,
+              foregroundColor: _DS.canvas,
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int _colCount(double width) {
+    if (width > 1100) return 4;
+    if (width > 750) return 3;
+    return 2;
+  }
+}
+
+// ─── Card ─────────────────────────────────────────────────────────────────────
+
+class _PaymentCard extends StatefulWidget {
+  const _PaymentCard({
+    required this.type,
+    required this.active,
+    required this.loading,
+    required this.onTap,
+  });
+
+  final _PaymentType type;
+  final bool active;
+  final bool loading;
+  final VoidCallback onTap;
+
+  @override
+  State<_PaymentCard> createState() => _PaymentCardState();
+}
+
+class _PaymentCardState extends State<_PaymentCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = widget.active;
+    final accent = widget.type.accent;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.all(_DS.s4),
+          decoration: BoxDecoration(
+            color: _DS.canvas,
+            borderRadius: BorderRadius.circular(_DS.rXl),
+            border: Border.all(
+              color: active
+                  ? accent.withValues(alpha: 0.55)
+                  : _hovered
+                      ? _DS.hairline
+                      : _DS.hairlineSoft,
+              width: active ? 2.0 : 1.0,
+            ),
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.10),
+                      blurRadius: 20,
+                      offset: const Offset(0, 6),
+                    )
+                  ]
+                : _hovered
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        )
+                      ]
+                    : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Icon
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: active ? accent.withValues(alpha: 0.12) : _DS.surface,
+                      borderRadius: BorderRadius.circular(_DS.rLg),
+                    ),
+                    child: Icon(
+                      widget.type.icon,
+                      size: 22,
+                      color: active ? accent : _DS.stone,
+                    ),
+                  ),
+                  const Spacer(),
+                  // Toggle circle
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: active ? _DS.success : Colors.transparent,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: active ? _DS.success : _DS.hairline,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: widget.loading
+                        ? Padding(
+                            padding: const EdgeInsets.all(5),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: active ? _DS.canvas : _DS.stone,
+                            ),
+                          )
+                        : active
+                            ? const Icon(Icons.check_rounded, size: 14, color: _DS.canvas)
+                            : null,
+                  ),
+                ],
+              ),
+              const SizedBox(height: _DS.s3),
+              Text(
+                widget.type.label,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: active ? _DS.ink : _DS.slate,
+                  letterSpacing: -0.1,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                widget.type.description,
+                style: const TextStyle(fontSize: 11.5, color: _DS.stone, height: 1.45),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: _DS.s3),
+              // Status chip
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: active ? _DS.successSubtle : _DS.surface,
+                  borderRadius: BorderRadius.circular(_DS.rFull),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: active ? _DS.success : _DS.stone,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      active ? 'Ativo' : 'Inativo',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: active ? _DS.success : _DS.stone,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

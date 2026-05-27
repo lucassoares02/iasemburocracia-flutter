@@ -19,6 +19,7 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
+  <meta name="google-signin-client_id" content="549669468108-vkq356vb6o50j6gh2opr6b5ntgvjn266.apps.googleusercontent.com">
 
   <!-- iOS meta tags & icons -->
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -36,8 +37,39 @@
     // The value below is injected by flutter build, do not touch.
     const serviceWorkerVersion = null;
   </script>
+  <!-- Google Maps JavaScript API -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBUxNIZ4yXZZA752jhoEXLI0vBbXZwaaw0&libraries=places" defer></script>
+
   <!-- This script adds the flutter initialization JS code -->
   <script src="flutter.js" defer></script>
+
+  <script>
+    // Map registry keyed by viewId
+    var _flutterMaps = {};
+
+    function _initFlutterMap(viewId, lat, lng) {
+      var el = document.getElementById(viewId);
+      if (!el) return;
+      var center = { lat: lat, lng: lng };
+      var map = new google.maps.Map(el, {
+        center: center,
+        zoom: 16,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+      });
+      var marker = new google.maps.Marker({ position: center, map: map });
+      _flutterMaps[viewId] = { map: map, marker: marker };
+    }
+
+    function _updateFlutterMap(viewId, lat, lng) {
+      var entry = _flutterMaps[viewId];
+      if (!entry) { _initFlutterMap(viewId, lat, lng); return; }
+      var pos = { lat: lat, lng: lng };
+      entry.map.setCenter(pos);
+      entry.marker.setPosition(pos);
+    }
+  </script>
 </head>
 <body>
   <script>

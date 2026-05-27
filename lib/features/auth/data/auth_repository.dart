@@ -18,6 +18,15 @@ class AuthRepository {
     }
   }
 
+  Future<UserModel> loginWithGoogle(String idToken) async {
+    try {
+      ResponseModel response = await httpService.post("auth/google", {"accessToken": idToken});
+      return UserModel.fromJson(response.data);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<ResponseModel> getCompanies() async {
     try {
       ResponseModel response = await httpService.get("companies");

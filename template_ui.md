@@ -113,7 +113,7 @@ Row(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Page Title', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700,
+          Text('Page Title', style: TextStyle(fontSize: 20,
               color: _DS.textPrimary, letterSpacing: -0.5)),
           SizedBox(height: _DS.s1),
           Text('Supporting description.', style: TextStyle(fontSize: 13,
@@ -167,10 +167,10 @@ Padding(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Label', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500,
+            Text('Label', style: TextStyle(fontSize: 11,
                 color: _DS.textTertiary, letterSpacing: 0.4)),
             SizedBox(height: _DS.s2),
-            Text('Value', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500,
+            Text('Value', style: TextStyle(fontSize: 14,
                 color: _DS.textPrimary)),
           ],
         ),
@@ -226,7 +226,7 @@ Container(
               color: isActive ? _DS.success : _DS.danger, shape: BoxShape.circle)),
       SizedBox(width: 6),
       Text(isActive ? 'Ativo' : 'Inativo',
-          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+          style: TextStyle(fontSize: 11,
               color: isActive ? Color(0xFF15803D) : Color(0xFFB91C1C))),
     ],
   ),

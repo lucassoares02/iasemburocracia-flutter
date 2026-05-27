@@ -24,6 +24,29 @@ class CompanyOpeningHoursController extends BaseController<CompanyOpeningHoursMo
           findAll();
         },
       );
+
+  /// Creates many opening-hour rows in one go.
+  /// Posts requests in parallel and refreshes the list once at the end.
+  Future<void> createMany(List<CompanyOpeningHoursModel> items) async {
+    if (items.isEmpty) return;
+    stateCreate.value = LoadingState();
+    try {
+      final responses = await Future.wait(
+        items.map((m) => company_opening_hoursUsecase.create(m)),
+      );
+      final failed = responses.where((r) => !r.success).toList();
+      if (failed.isNotEmpty) {
+        stateCreate.value = ErrorState(failed.first.message);
+        await Future.delayed(const Duration(milliseconds: 1000));
+        stateCreate.value = StartState();
+      } else {
+        stateCreate.value = SuccessState(null);
+      }
+      await findAll();
+    } catch (e) {
+      stateCreate.value = ErrorState(e.toString());
+    }
+  }
   Future<void> update(CompanyOpeningHoursModel data) async => runWithState(
         () => company_opening_hoursUsecase.update(data),
         stateCreate,

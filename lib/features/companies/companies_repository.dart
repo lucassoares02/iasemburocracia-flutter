@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:portal_assoc/features/companies/models/business_address_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -64,10 +66,53 @@ class CompaniesRepository {
     }
   }
 
+  Future<ResponseModel> addressAutocomplete(String input, {String? sessionToken}) async {
+    try {
+      final q = 'address/autocomplete?input=${Uri.encodeComponent(input)}'
+          '${sessionToken != null ? '&sessionToken=$sessionToken' : ''}';
+      final response = await httpService.get(q);
+      final list = response.data as List;
+      response.data = list.map((e) => PlaceSuggestion.fromJson(e)).toList();
+      return response;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ResponseModel> addressDetails(String placeId, {String? sessionToken}) async {
+    try {
+      final q = 'address/details/$placeId'
+          '${sessionToken != null ? '?sessionToken=$sessionToken' : ''}';
+      final response = await httpService.get(q);
+      response.data = PlaceDetails.fromJson(response.data as Map<String, dynamic>);
+      return response;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<ResponseModel> updateBusiness(BusinessAddressModel data) async {
     try {
       ResponseModel response = await httpService.patch("company/address", data.toJson());
       return response;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ResponseModel> uploadCompanyImage(
+    Uint8List bytes,
+    String filename,
+    String mimeType, {
+    String type = 'logo',
+  }) async {
+    try {
+      return await httpService.uploadFile(
+        "companiessss/upload-image?type=$type",
+        bytes,
+        filename,
+        mimeType,
+      );
     } catch (e) {
       rethrow;
     }

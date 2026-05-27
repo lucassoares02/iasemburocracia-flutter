@@ -6,7 +6,6 @@ class AppTheme {
   static TextTheme _textTheme(Color textColor, Color secondaryColor) => TextTheme(
         headlineLarge: TextStyle(
           fontSize: _baseFontSize * 1.5,
-          fontWeight: FontWeight.bold,
           color: textColor,
         ),
         bodyLarge: TextStyle(
@@ -19,7 +18,6 @@ class AppTheme {
         ),
         labelLarge: TextStyle(
           fontSize: _baseFontSize,
-          fontWeight: FontWeight.w600,
           color: secondaryColor,
         ),
       );
@@ -57,7 +55,6 @@ class AppTheme {
         titleTextStyle: TextStyle(
           color: Colors.grey[900],
           fontSize: _baseFontSize * 1.25,
-          fontWeight: FontWeight.w600,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -76,7 +73,6 @@ class AppTheme {
           ),
           textStyle: const TextStyle(
             fontSize: _baseFontSize,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ),
@@ -115,7 +111,6 @@ class AppTheme {
         titleTextStyle: const TextStyle(
           color: Colors.white70,
           fontSize: _baseFontSize * 1.25,
-          fontWeight: FontWeight.w600,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -134,7 +129,6 @@ class AppTheme {
           ),
           textStyle: const TextStyle(
             fontSize: _baseFontSize,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ),

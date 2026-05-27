@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:portal_assoc/features/menu_items/menu_items_usecase.dart';
 import 'package:portal_assoc/core/state/app_state.dart';
+import '../../core/services/response_model.dart';
 import '../../core/state/base_controller.dart';
 import 'package:flutter/material.dart';
 import 'menu_items_model.dart';
@@ -32,6 +35,16 @@ class MenuItemsController extends BaseController<MenuItemsModel> {
           Navigator.pop(context);
           findAll();
         },
+      );
+  Future<ResponseModel> uploadImage(Uint8List bytes, String filename, String mimeType) async {
+    return await menuItemsUsecase.uploadImage(bytes, filename, mimeType);
+  }
+
+  // Toggle without navigation — used for quick enable/disable from the grid
+  Future<void> toggle(MenuItemsModel data) async => runWithState(
+        () => menuItemsUsecase.update(data),
+        stateUpdate,
+        additionalAction: findAll,
       );
   Future<void> delete(int id, BuildContext context) async => runWithState(
         () => menuItemsUsecase.delete(id),

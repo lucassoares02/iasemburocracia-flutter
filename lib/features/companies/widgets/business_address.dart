@@ -1,20 +1,20 @@
+import 'dart:async' as dart_async;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_multi_formatter/formatters/masked_input_formatter.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:portal_assoc/core/providers/onboarding_provider.dart';
 import 'package:portal_assoc/core/state/app_state.dart';
-import 'package:portal_assoc/core/utils/spacing.dart';
-import 'package:portal_assoc/features/account/widgets/base_account.dart';
 import 'package:portal_assoc/features/companies/companies_controller.dart';
 import 'package:portal_assoc/features/companies/models/business_address_model.dart';
-import 'package:portal_assoc/shared/widgets/custom_input.dart';
+import 'package:portal_assoc/shared/widgets/google_map_widget.dart';
 import 'package:portal_assoc/shared/widgets/loading_container.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ─── Design Tokens ──────────────────────────────────────────────────────────
-
 class _DS {
-  // Spacing (8px grid)
   static const double s1 = 4.0;
   static const double s2 = 8.0;
   static const double s3 = 12.0;
@@ -22,16 +22,12 @@ class _DS {
   static const double s5 = 20.0;
   static const double s6 = 24.0;
   static const double s8 = 32.0;
-  static const double s10 = 40.0;
 
-  // Radius
   static const double radiusSm = 6.0;
   static const double radiusMd = 10.0;
   static const double radiusLg = 14.0;
 
-  // Colors
   static const Color surface = Color(0xFFFFFFFF);
-  static const Color background = Color(0xFFF7F7F8);
   static const Color border = Color(0xFFE4E4E7);
   static const Color borderFocus = Color(0xFF18181B);
   static const Color textPrimary = Color(0xFF09090B);
@@ -39,39 +35,22 @@ class _DS {
   static const Color textTertiary = Color(0xFFA1A1AA);
   static const Color accent = Color(0xFF18181B);
   static const Color accentSubtle = Color(0xFFF4F4F5);
+  static const Color brandBlue = Color(0xFF4262FF);
   static const Color danger = Color(0xFFEF4444);
   static const Color dangerSubtle = Color(0xFFFEF2F2);
 
-  // Shadows
   static List<BoxShadow> shadowSm = [
-    BoxShadow(
-      color: Colors.black.withOpacity(0.04),
-      blurRadius: 4,
-      offset: const Offset(0, 1),
-    ),
-    BoxShadow(
-      color: Colors.black.withOpacity(0.02),
-      blurRadius: 1,
-      offset: const Offset(0, 0),
-    ),
+    BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 1)),
+    BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 1, offset: const Offset(0, 0)),
   ];
 
   static List<BoxShadow> shadowMd = [
-    BoxShadow(
-      color: Colors.black.withOpacity(0.06),
-      blurRadius: 16,
-      offset: const Offset(0, 4),
-    ),
-    BoxShadow(
-      color: Colors.black.withOpacity(0.03),
-      blurRadius: 4,
-      offset: const Offset(0, 1),
-    ),
+    BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 16, offset: const Offset(0, 4)),
+    BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 4, offset: const Offset(0, 1)),
   ];
 }
 
 // ─── Widget ─────────────────────────────────────────────────────────────────
-
 class BusinessAddress extends StatefulWidget {
   const BusinessAddress({super.key, required this.controller});
 
@@ -85,6 +64,7 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
   bool _isEditing = false;
   final _formKey = GlobalKey<FormState>();
 
+  // Address text controllers
   late TextEditingController _streetController;
   late TextEditingController _numberController;
   late TextEditingController _complementController;
@@ -93,9 +73,21 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
   late TextEditingController _stateController;
   late TextEditingController _zipCodeController;
 
+  // Places search
+  final _searchCtrl = TextEditingController();
+  final _layerLink = LayerLink();
+  final _debounce = _Debouncer(delay: const Duration(milliseconds: 500));
+  List<PlaceSuggestion> _suggestions = [];
+  bool _loadingSuggestions = false;
+  OverlayEntry? _overlayEntry;
+  String? _sessionToken;
+
+  // Pending lat/lng from Places selection
+  double? _pendingLat;
+  double? _pendingLng;
+
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
-
   BusinessAddressModel? _currentAccount;
 
   @override
@@ -110,19 +102,22 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
     _stateController = TextEditingController();
     _zipCodeController = TextEditingController();
 
+    _sessionToken = DateTime.now().millisecondsSinceEpoch.toString();
+
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 220),
     );
-    _fadeAnim = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOut,
-    );
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _animController.forward();
+
+    widget.controller.stateAddressAutocomplete.addListener(_onSuggestions);
+    widget.controller.stateAddressDetails.addListener(_onDetails);
   }
 
   @override
   void dispose() {
+    _removeOverlay();
     _streetController.dispose();
     _numberController.dispose();
     _complementController.dispose();
@@ -130,53 +125,226 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
     _cityController.dispose();
     _stateController.dispose();
     _zipCodeController.dispose();
+    _searchCtrl.dispose();
+    _debounce.cancel();
     _animController.dispose();
+    widget.controller.stateAddressAutocomplete.removeListener(_onSuggestions);
+    widget.controller.stateAddressDetails.removeListener(_onDetails);
     super.dispose();
   }
 
-  void _initializeControllers(BusinessAddressModel company) {
-    _currentAccount = company;
-    _streetController.text = company.street ?? '';
-    _numberController.text = company.number ?? '';
-    _complementController.text = company.complement ?? '';
-    _neighborhoodController.text = company.neighborhood ?? '';
-    _cityController.text = company.city ?? '';
-    _stateController.text = company.state ?? '';
-    _zipCodeController.text = company.zipCode ?? '';
+  // ─── Places overlay ─────────────────────────────────────────────────────────
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _showOverlay() {
+    _removeOverlay();
+    if (_suggestions.isEmpty) return;
+
+    _overlayEntry = OverlayEntry(
+      builder: (_) => Positioned(
+        width: _layerLink.leaderSize?.width ?? 500,
+        child: CompositedTransformFollower(
+          link: _layerLink,
+          showWhenUnlinked: false,
+          offset: Offset(0, (_layerLink.leaderSize?.height ?? 44) + 4),
+          child: Material(
+            elevation: 8,
+            shadowColor: Colors.black.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(_DS.radiusLg),
+            child: Container(
+              decoration: BoxDecoration(
+                color: _DS.surface,
+                borderRadius: BorderRadius.circular(_DS.radiusLg),
+                border: Border.all(color: _DS.border),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: _suggestions.map((s) {
+                  return InkWell(
+                    onTap: () => _selectSuggestion(s),
+                    borderRadius: BorderRadius.circular(_DS.radiusLg),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: _DS.s4, vertical: _DS.s3),
+                      child: Row(
+                        children: [
+                          const Icon(LucideIcons.mapPin, size: 14, color: _DS.textSecondary),
+                          const SizedBox(width: _DS.s3),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  s.mainText ?? s.description,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: _DS.textPrimary,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (s.secondaryText != null)
+                                  Text(
+                                    s.secondaryText!,
+                                    style: const TextStyle(fontSize: 11, color: _DS.textTertiary),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  void _onSuggestions() {
+    final s = widget.controller.stateAddressAutocomplete.value;
+    if (!mounted) return;
+    if (s is LoadingState) {
+      setState(() => _loadingSuggestions = true);
+    } else if (s is SuccessState) {
+      setState(() {
+        _loadingSuggestions = false;
+        _suggestions = (s.data as List).cast<PlaceSuggestion>();
+      });
+      _showOverlay();
+    } else {
+      setState(() => _loadingSuggestions = false);
+      _removeOverlay();
+    }
+  }
+
+  void _onDetails() {
+    final s = widget.controller.stateAddressDetails.value;
+    if (!mounted) return;
+    if (s is SuccessState) {
+      final d = s.data as PlaceDetails;
+      setState(() {
+        _pendingLat = d.lat;
+        _pendingLng = d.lng;
+        if (d.street != null) _streetController.text = d.street!;
+        if (d.number != null) _numberController.text = d.number!;
+        if (d.neighborhood != null) _neighborhoodController.text = d.neighborhood!;
+        if (d.city != null) _cityController.text = d.city!;
+        if (d.state != null) _stateController.text = d.state!;
+        if (d.zipCode != null) _zipCodeController.text = d.zipCode!;
+        _sessionToken = DateTime.now().millisecondsSinceEpoch.toString();
+      });
+      _removeOverlay();
+    }
+  }
+
+  void _onSearchChanged(String v) {
+    if (v.trim().length < 3) {
+      setState(() {
+        _suggestions = [];
+        _loadingSuggestions = false;
+      });
+      _removeOverlay();
+      return;
+    }
+    _debounce.run(() {
+      widget.controller.addressAutocomplete(v.trim(), sessionToken: _sessionToken);
+    });
+  }
+
+  void _selectSuggestion(PlaceSuggestion s) {
+    _searchCtrl.text = s.description;
+    _removeOverlay();
+    widget.controller.addressDetails(s.placeId, sessionToken: _sessionToken);
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+  void _initializeControllers(BusinessAddressModel a) {
+    _currentAccount = a;
+    _streetController.text = a.street ?? '';
+    _numberController.text = a.number ?? '';
+    _complementController.text = a.complement ?? '';
+    _neighborhoodController.text = a.neighborhood ?? '';
+    _cityController.text = a.city ?? '';
+    _stateController.text = a.state ?? '';
+    _zipCodeController.text = a.zipCode ?? '';
   }
 
   void _toggleEditMode() {
     setState(() {
       _isEditing = !_isEditing;
-      if (!_isEditing && _currentAccount != null) {
-        _initializeControllers(_currentAccount!);
+      if (!_isEditing) {
+        _searchCtrl.clear();
+        _pendingLat = null;
+        _pendingLng = null;
+        _removeOverlay();
+        if (_currentAccount != null) _initializeControllers(_currentAccount!);
       }
     });
   }
 
-  Future<void> _saveChanges() async {
+  _saveChanges() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     final prefs = await SharedPreferences.getInstance();
-    int? companyId = prefs.getInt('company') ?? 0;
-    if (_formKey.currentState?.validate() ?? false) {
-      final updatedAccount = BusinessAddressModel.fromJson({
-        "id": _currentAccount!.id,
-        "street": _streetController.text,
-        "company_id": companyId,
-        "number": _numberController.text,
-        "complement": _complementController.text,
-        "neighborhood": _neighborhoodController.text,
-        "city": _cityController.text,
-        "state": _stateController.text,
-        "zip_code": _zipCodeController.text,
-      });
+    final companyId = prefs.getInt('company') ?? 0;
 
-      await widget.controller.updateBusiness(updatedAccount);
+    final lat = _pendingLat?.toString() ?? _currentAccount?.latitude;
+    final lng = _pendingLng?.toString() ?? _currentAccount?.longitude;
 
-      setState(() {
-        _isEditing = false;
-      });
-    }
+    final updated = BusinessAddressModel.fromJson({
+      'id': _currentAccount!.id,
+      'street': _streetController.text,
+      'company_id': companyId,
+      'number': _numberController.text,
+      'complement': _complementController.text,
+      'neighborhood': _neighborhoodController.text,
+      'city': _cityController.text,
+      'state': _stateController.text,
+      'zip_code': _zipCodeController.text,
+      'latitude': lat,
+      'longitude': lng,
+    });
+
+    await widget.controller.updateBusiness(updated);
+    if (!mounted) return;
+    // Mantém o snapshot de onboarding em sincronia caso o usuário tenha
+    // cadastrado o endereço fora do wizard.
+    context.read<OnboardingProvider>().refresh(silent: true);
+    setState(() {
+      _isEditing = false;
+      _searchCtrl.clear();
+      _pendingLat = null;
+      _pendingLng = null;
+    });
   }
+
+  // ─── Map helper ───────────────────────────────────────────────────────────────
+
+  double? _displayLat() {
+    if (_isEditing && _pendingLat != null) return _pendingLat;
+    final raw = _currentAccount?.latitude;
+    if (raw == null || raw.isEmpty) return null;
+    return double.tryParse(raw);
+  }
+
+  double? _displayLng() {
+    if (_isEditing && _pendingLng != null) return _pendingLng;
+    final raw = _currentAccount?.longitude;
+    if (raw == null || raw.isEmpty) return null;
+    return double.tryParse(raw);
+  }
+
+  // ─── Build ────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -189,11 +357,11 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
             if (state is LoadingState) return _buildLoadingSkeleton();
             if (state is ErrorState) return _buildErrorState(state.message);
             if (state is SuccessState) {
-              BusinessAddressModel company = state.data;
+              final addr = state.data as BusinessAddressModel;
               if (_currentAccount == null || !_isEditing) {
-                _initializeControllers(company);
+                _initializeControllers(addr);
               }
-              return _buildContent(company);
+              return _buildContent(addr);
             }
             return const SizedBox.shrink();
           },
@@ -202,7 +370,7 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
     );
   }
 
-  // ─── Loading ──────────────────────────────────────────────────────────────
+  // ─── Loading ──────────────────────────────────────────────────────────────────
 
   Widget _buildLoadingSkeleton() {
     return Padding(
@@ -210,7 +378,6 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header skeleton
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -226,7 +393,6 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
             ],
           ),
           const SizedBox(height: _DS.s6),
-          // Card skeleton
           Container(
             decoration: BoxDecoration(
               color: _DS.surface,
@@ -237,10 +403,7 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
               children: List.generate(
                 4,
                 (i) => Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: _DS.s5,
-                    vertical: _DS.s4,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: _DS.s5, vertical: _DS.s4),
                   child: Row(
                     children: [
                       LoadingContainer(height: 36, width: 36, borderRadius: BorderRadius.circular(_DS.radiusMd)),
@@ -266,7 +429,7 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
     );
   }
 
-  // ─── Error ────────────────────────────────────────────────────────────────
+  // ─── Error ────────────────────────────────────────────────────────────────────
 
   Widget _buildErrorState(String message) {
     return Center(
@@ -283,35 +446,27 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
                 borderRadius: BorderRadius.circular(_DS.radiusLg),
                 border: Border.all(color: const Color(0xFFFECACA)),
               ),
-              child: const Icon(
-                LucideIcons.alertTriangle,
-                size: 24,
-                color: _DS.danger,
-              ),
+              child: const Icon(LucideIcons.alertTriangle, size: 24, color: _DS.danger),
             ),
             const SizedBox(height: _DS.s4),
             Text(
-              "Erro ao carregar endereço",
+              'Erro ao carregar endereço',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: _DS.textPrimary,
-                    fontWeight: FontWeight.w600,
                     letterSpacing: -0.3,
                   ),
             ),
             const SizedBox(height: _DS.s2),
             Text(
               message,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _DS.textSecondary,
-                    height: 1.5,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: _DS.textSecondary, height: 1.5),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: _DS.s6),
             _SaasOutlinedButton(
-              onPressed: () => widget.controller.findBusinessAddress(),
+              onPressed: widget.controller.findBusinessAddress,
               icon: LucideIcons.refreshCw,
-              label: "Tentar novamente",
+              label: 'Tentar novamente',
             ),
           ],
         ),
@@ -319,9 +474,12 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
     );
   }
 
-  // ─── Main Content ─────────────────────────────────────────────────────────
+  // ─── Main content ─────────────────────────────────────────────────────────────
 
-  Widget _buildContent(BusinessAddressModel company) {
+  Widget _buildContent(BusinessAddressModel addr) {
+    final lat = _displayLat();
+    final lng = _displayLng();
+
     return Column(
       children: [
         Expanded(
@@ -334,9 +492,26 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildPageHeader(company),
+                    _buildPageHeader(),
                     const SizedBox(height: _DS.s6),
-                    _buildAddressCard(company),
+
+                    // Places search — only in edit mode
+                    if (_isEditing) ...[
+                      _buildSearchField(),
+                      const SizedBox(height: _DS.s4),
+                    ],
+
+                    _buildAddressCard(addr),
+
+                    // Map preview — if lat/lng available
+                    if (lat != null && lng != null) ...[
+                      const SizedBox(height: _DS.s4),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(_DS.radiusLg),
+                        child: GoogleMapWidget(lat: lat, lng: lng, height: 220),
+                      ),
+                    ],
+
                     const SizedBox(height: _DS.s8),
                   ],
                 ),
@@ -348,9 +523,9 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
     );
   }
 
-  // ─── Page Header ─────────────────────────────────────────────────────────
+  // ─── Page header ──────────────────────────────────────────────────────────────
 
-  Widget _buildPageHeader(BusinessAddressModel company) {
+  Widget _buildPageHeader() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -359,21 +534,17 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Endereço Comercial",
+                'Endereço Comercial',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       color: _DS.textPrimary,
-                      fontWeight: FontWeight.w700,
                       letterSpacing: -0.5,
                       fontSize: 20,
                     ),
               ),
               const SizedBox(height: _DS.s1),
               Text(
-                "Gerencie o endereço registrado da sua empresa.",
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _DS.textSecondary,
-                      height: 1.5,
-                    ),
+                'Gerencie o endereço registrado da sua empresa.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: _DS.textSecondary, height: 1.5),
               ),
             ],
           ),
@@ -389,15 +560,15 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
               ? Row(
                   key: const ValueKey('editing'),
                   children: [
-                    _SaasGhostButton(
-                      onPressed: _toggleEditMode,
-                      label: "Cancelar",
-                    ),
+                    _SaasGhostButton(onPressed: _toggleEditMode, label: 'Cancelar'),
                     const SizedBox(width: _DS.s2),
-                    _SaasPrimaryButton(
-                      onPressed: _saveChanges,
-                      icon: LucideIcons.check,
-                      label: "Salvar",
+                    ValueListenableBuilder<StateApp>(
+                      valueListenable: widget.controller.stateUpdateBusiness,
+                      builder: (_, state, __) => _SaasPrimaryButton(
+                        onPressed: state is LoadingState ? () {} : _saveChanges,
+                        icon: state is LoadingState ? LucideIcons.loader : LucideIcons.check,
+                        label: state is LoadingState ? 'Salvando...' : 'Salvar',
+                      ),
                     ),
                   ],
                 )
@@ -405,74 +576,142 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
                   key: const ValueKey('viewing'),
                   onPressed: _toggleEditMode,
                   icon: LucideIcons.edit2,
-                  label: "Editar",
+                  label: 'Editar',
                 ),
         ),
       ],
     );
   }
 
-  // ─── Address Card ─────────────────────────────────────────────────────────
+  // ─── Search field ──────────────────────────────────────────────────────────────
 
-  Widget _buildAddressCard(BusinessAddressModel company) {
+  Widget _buildSearchField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Buscar endereço com Google Maps',
+          style: TextStyle(
+            fontSize: 11,
+            color: _DS.textTertiary,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: _DS.s2),
+        CompositedTransformTarget(
+          link: _layerLink,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            decoration: BoxDecoration(
+              color: _DS.surface,
+              borderRadius: BorderRadius.circular(_DS.radiusSm),
+              border: Border.all(color: _DS.border),
+              boxShadow: _DS.shadowSm,
+            ),
+            child: Row(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: _DS.s3),
+                  child: Icon(LucideIcons.search, size: 15, color: _DS.textSecondary),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: _onSearchChanged,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: _DS.textPrimary),
+                    decoration: const InputDecoration(
+                      filled: true,
+                      fillColor: _DS.surface,
+                      hintText: 'Ex: Av. Paulista, 1000 — São Paulo...',
+                      hintStyle: TextStyle(color: _DS.textTertiary, fontSize: 14, fontWeight: FontWeight.w400),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 0, vertical: _DS.s3),
+                    ),
+                  ),
+                ),
+                if (_loadingSuggestions)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: _DS.s3),
+                    child: SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: _DS.brandBlue),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: _DS.s2),
+        const Text(
+          'Selecione um endereço para preencher os campos automaticamente.',
+          style: TextStyle(fontSize: 11, color: _DS.textTertiary, height: 1.4),
+        ),
+      ],
+    );
+  }
+
+  // ─── Address card ─────────────────────────────────────────────────────────────
+
+  Widget _buildAddressCard(BusinessAddressModel addr) {
     final fields = [
       _FieldConfig(
         icon: LucideIcons.mapPin,
-        label: "Logradouro",
-        value: company.street,
+        label: 'Logradouro',
+        value: addr.street,
         controller: _streetController,
-        maxLength: 100,
+        maxLength: 255,
         validator: (v) => (v == null || v.isEmpty) ? 'Logradouro é obrigatório' : null,
       ),
       _FieldConfig(
         icon: LucideIcons.hash,
-        label: "Número",
-        value: company.number,
+        label: 'Número',
+        value: addr.number,
         controller: _numberController,
         keyboardType: TextInputType.number,
       ),
       _FieldConfig(
         icon: LucideIcons.layers,
-        label: "Complemento",
-        value: company.complement,
+        label: 'Complemento',
+        value: addr.complement,
         controller: _complementController,
-        maxLength: 255,
-        placeholder: "Ex: Apto 12, Bloco B",
+        maxLength: 100,
+        placeholder: 'Ex: Apto 12, Bloco B',
       ),
       _FieldConfig(
         icon: LucideIcons.grid,
-        label: "Bairro",
-        value: company.neighborhood,
+        label: 'Bairro',
+        value: addr.neighborhood,
         controller: _neighborhoodController,
         maxLength: 100,
       ),
       _FieldConfig(
         icon: LucideIcons.building2,
-        label: "Cidade",
-        value: company.city,
+        label: 'Cidade',
+        value: addr.city,
         controller: _cityController,
         maxLength: 100,
+        validator: (v) => (v == null || v.isEmpty) ? 'Cidade é obrigatória' : null,
       ),
       _FieldConfig(
         icon: LucideIcons.flag,
-        label: "Estado",
-        value: company.state,
+        label: 'Estado',
+        value: addr.state,
         controller: _stateController,
         maxLength: 2,
-        hint: "UF",
+        hint: 'UF',
       ),
       _FieldConfig(
         icon: LucideIcons.mailOpen,
-        label: "CEP",
-        value: company.zipCode,
+        label: 'CEP',
+        value: addr.zipCode,
         controller: _zipCodeController,
         maxLength: 9,
         keyboardType: TextInputType.number,
         inputFormatters: [
-          MaskedInputFormatter(
-            '#####-###',
-            allowedCharMatcher: RegExp(r'[0-9]'),
-          ),
+          MaskedInputFormatter('#####-###', allowedCharMatcher: RegExp(r'[0-9]')),
         ],
       ),
     ];
@@ -482,93 +721,132 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
         color: _DS.surface,
         borderRadius: BorderRadius.circular(_DS.radiusLg),
         border: Border.all(color: _DS.border),
-        boxShadow: _DS.shadowSm,
       ),
-      clipBehavior: Clip.antiAlias,
+      padding: const EdgeInsets.all(_DS.s4),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (int i = 0; i < fields.length; i++) ...[
-            _buildFieldRow(fields[i]),
-            if (i < fields.length - 1) const Divider(height: 1, thickness: 1, color: Color(0xFFF1F1F2)),
-          ],
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: _DS.accentSubtle,
+                  borderRadius: BorderRadius.circular(_DS.radiusSm),
+                ),
+                child: const Icon(
+                  LucideIcons.mapPin,
+                  size: 14,
+                  color: _DS.textSecondary,
+                ),
+              ),
+              const SizedBox(width: _DS.s2),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Dados do endereço',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: _DS.textPrimary,
+                            letterSpacing: -0.2,
+                          ),
+                    ),
+                    const SizedBox(height: _DS.s1),
+                    Text(
+                      _isEditing ? 'Revise os campos antes de salvar as alterações.' : 'Informações usadas no cadastro e localização da empresa.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: _DS.textSecondary,
+                            height: 1.25,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: _DS.s3),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final twoColumns = constraints.maxWidth >= 760;
+              final itemWidth = twoColumns ? (constraints.maxWidth - _DS.s3) / 2 : constraints.maxWidth;
+
+              return Wrap(
+                spacing: _DS.s3,
+                runSpacing: _DS.s3,
+                children: fields
+                    .map(
+                      (field) => SizedBox(
+                        width: itemWidth,
+                        child: _buildFieldCard(field),
+                      ),
+                    )
+                    .toList(),
+              );
+            },
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildFieldRow(_FieldConfig field) {
+  Widget _buildFieldCard(_FieldConfig field) {
     final isEmpty = (field.value == null || field.value!.isEmpty);
-    final displayValue = isEmpty ? (field.placeholder ?? "—") : field.value!;
+    final displayValue = isEmpty ? (field.placeholder ?? '—') : field.value!;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
-      color: _isEditing && field.controller != null ? const Color(0xFFFAFAFB) : Colors.transparent,
-      padding: const EdgeInsets.symmetric(
-        horizontal: _DS.s5,
-        vertical: _DS.s4,
+      padding: const EdgeInsets.symmetric(horizontal: _DS.s3, vertical: _DS.s3),
+      decoration: BoxDecoration(
+        color: _isEditing && field.controller != null ? const Color(0xFFFCFCFD) : _DS.surface,
+        borderRadius: BorderRadius.circular(_DS.radiusSm),
+        border: Border.all(color: _DS.border),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Icon
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: _DS.accentSubtle,
-              borderRadius: BorderRadius.circular(_DS.radiusMd),
-            ),
-            child: Icon(
-              field.icon,
-              size: 16,
-              color: _DS.textSecondary,
-            ),
-          ),
-          const SizedBox(width: _DS.s4),
-          // Content
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
+          Row(
+            children: [
+              Icon(field.icon, size: 13, color: _DS.textSecondary),
+              const SizedBox(width: _DS.s2),
+              Expanded(
+                child: Text(
                   field.label,
                   style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 10.5,
                     color: _DS.textTertiary,
-                    letterSpacing: 0.4,
-                    height: 1,
+                    letterSpacing: 0.25,
                   ),
                 ),
-                const SizedBox(height: _DS.s2),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  child: _isEditing && field.controller != null
-                      ? _SaasInput(
-                          key: ValueKey('input_${field.label}'),
-                          controller: field.controller!,
-                          keyboardType: field.keyboardType,
-                          validator: field.validator,
-                          maxLength: field.maxLength,
-                          hintText: field.hint,
-                          inputFormatters: field.inputFormatters,
-                        )
-                      : Align(
-                          key: ValueKey('text_${field.label}'),
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            displayValue,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: isEmpty ? _DS.textTertiary : _DS.textPrimary,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                ),
-              ],
-            ),
+              ),
+            ],
+          ),
+          const SizedBox(height: _DS.s2),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            child: _isEditing && field.controller != null
+                ? _SaasInput(
+                    key: ValueKey('input_${field.label}'),
+                    controller: field.controller!,
+                    keyboardType: field.keyboardType,
+                    validator: field.validator,
+                    maxLength: field.maxLength,
+                    hintText: field.hint,
+                    inputFormatters: field.inputFormatters,
+                  )
+                : Align(
+                    key: ValueKey('text_${field.label}'),
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      displayValue,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isEmpty ? _DS.textTertiary : _DS.textPrimary,
+                        height: 1.25,
+                      ),
+                    ),
+                  ),
           ),
         ],
       ),
@@ -604,6 +882,22 @@ class _FieldConfig {
   });
 }
 
+// ─── Debouncer ────────────────────────────────────────────────────────────────
+
+class _Debouncer {
+  final Duration delay;
+  dart_async.Timer? _timer;
+
+  _Debouncer({required this.delay});
+
+  void run(VoidCallback action) {
+    _timer?.cancel();
+    _timer = dart_async.Timer(delay, action);
+  }
+
+  void cancel() => _timer?.cancel();
+}
+
 // ─── Design System Components ────────────────────────────────────────────────
 
 class _SaasInput extends StatefulWidget {
@@ -635,9 +929,7 @@ class _SaasInputState extends State<_SaasInput> {
   @override
   void initState() {
     super.initState();
-    _focusNode.addListener(() {
-      setState(() => _focused = _focusNode.hasFocus);
-    });
+    _focusNode.addListener(() => setState(() => _focused = _focusNode.hasFocus));
   }
 
   @override
@@ -666,34 +958,18 @@ class _SaasInputState extends State<_SaasInput> {
         maxLength: widget.maxLength,
         inputFormatters: widget.inputFormatters,
         validator: widget.validator,
-        style: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: _DS.textPrimary,
-          height: 1.4,
-        ),
+        style: const TextStyle(fontSize: 14, color: _DS.textPrimary, height: 1.4),
         decoration: InputDecoration(
           hintText: widget.hintText,
-          hintStyle: const TextStyle(
-            color: _DS.textTertiary,
-            fontSize: 14,
-            fontWeight: FontWeight.w400,
-          ),
+          hintStyle: const TextStyle(color: _DS.textTertiary, fontSize: 14, fontWeight: FontWeight.w400),
           counterText: '',
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: _DS.s3,
-            vertical: _DS.s3,
-          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: _DS.s3, vertical: _DS.s3),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
           errorBorder: InputBorder.none,
           focusedErrorBorder: InputBorder.none,
-          errorStyle: const TextStyle(
-            fontSize: 11,
-            color: _DS.danger,
-            height: 1.4,
-          ),
+          errorStyle: const TextStyle(fontSize: 11, color: _DS.danger, height: 1.4),
         ),
       ),
     );
@@ -727,10 +1003,7 @@ class _SaasPrimaryButtonState extends State<_SaasPrimaryButton> {
         onTap: widget.onPressed,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(
-            horizontal: _DS.s4,
-            vertical: _DS.s2 + 2,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: _DS.s4, vertical: _DS.s2 + 2),
           decoration: BoxDecoration(
             color: _hovered ? const Color(0xFF27272A) : _DS.accent,
             borderRadius: BorderRadius.circular(_DS.radiusMd),
@@ -743,12 +1016,7 @@ class _SaasPrimaryButtonState extends State<_SaasPrimaryButton> {
               const SizedBox(width: _DS.s2),
               Text(
                 widget.label,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  letterSpacing: -0.1,
-                ),
+                style: const TextStyle(fontSize: 13, color: Colors.white, letterSpacing: -0.1),
               ),
             ],
           ),
@@ -786,10 +1054,7 @@ class _SaasOutlinedButtonState extends State<_SaasOutlinedButton> {
         onTap: widget.onPressed,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(
-            horizontal: _DS.s4,
-            vertical: _DS.s2 + 2,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: _DS.s4, vertical: _DS.s2 + 2),
           decoration: BoxDecoration(
             color: _hovered ? _DS.accentSubtle : _DS.surface,
             borderRadius: BorderRadius.circular(_DS.radiusMd),
@@ -803,12 +1068,7 @@ class _SaasOutlinedButtonState extends State<_SaasOutlinedButton> {
               const SizedBox(width: _DS.s2),
               Text(
                 widget.label,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: _DS.textPrimary,
-                  letterSpacing: -0.1,
-                ),
+                style: const TextStyle(fontSize: 13, color: _DS.textPrimary, letterSpacing: -0.1),
               ),
             ],
           ),
@@ -843,22 +1103,14 @@ class _SaasGhostButtonState extends State<_SaasGhostButton> {
         onTap: widget.onPressed,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(
-            horizontal: _DS.s3,
-            vertical: _DS.s2 + 2,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: _DS.s3, vertical: _DS.s2 + 2),
           decoration: BoxDecoration(
             color: _hovered ? _DS.accentSubtle : Colors.transparent,
             borderRadius: BorderRadius.circular(_DS.radiusMd),
           ),
           child: Text(
             widget.label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: _hovered ? _DS.textPrimary : _DS.textSecondary,
-              letterSpacing: -0.1,
-            ),
+            style: TextStyle(fontSize: 13, color: _hovered ? _DS.textPrimary : _DS.textSecondary, letterSpacing: -0.1),
           ),
         ),
       ),

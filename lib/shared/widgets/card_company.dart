@@ -61,9 +61,7 @@ class _CardCompanyState extends State<CardCompany> {
                   children: [
                     Text(
                       "${widget.cnpj ?? ''} - ${widget.razaoSocial ?? ''}",
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(),
                     ),
                   ],
                 ),

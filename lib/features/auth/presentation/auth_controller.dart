@@ -1,5 +1,6 @@
 import 'package:portal_assoc/core/services/response_model.dart';
 import 'package:portal_assoc/features/auth/data/associate_model.dart';
+import 'package:portal_assoc/features/auth/data/google_auth_service.dart';
 import 'package:portal_assoc/features/auth/data/user_model.dart';
 import 'package:portal_assoc/features/auth/data/auth_repository.dart';
 import 'package:portal_assoc/features/auth/domain/auth_usecase.dart';
@@ -15,9 +16,13 @@ class AuthController extends ValueNotifier<StateApp> {
         super(initialState);
 
   ValueNotifier<StateApp> stateLogin = ValueNotifier(StartState());
+  ValueNotifier<StateApp> stateGoogleLogin = ValueNotifier(StartState());
   ValueNotifier<StateApp> stateCompanies = ValueNotifier(StartState());
   ValueNotifier<StateApp> stateForgot = ValueNotifier(StartState());
   ValueNotifier<StateApp> stateOrdersItems = ValueNotifier(StartState());
+
+  // Incrementado após cadastro de empresa para sinalizar refresh do dashboard
+  final ValueNotifier<int> homeRefreshNotifier = ValueNotifier(0);
 
   UserModel? user;
 
@@ -32,18 +37,39 @@ class AuthController extends ValueNotifier<StateApp> {
     }
   }
 
+  loginWithGoogle() async {
+    stateGoogleLogin.value = LoadingState();
+    try {
+      final idToken = await GoogleAuthService.signIn();
+      if (idToken == null) {
+        stateGoogleLogin.value = StartState();
+        return;
+      }
+      user = await _authUseCase.loginWithGoogle(idToken);
+      stateGoogleLogin.value = SuccessState<UserModel>(user!);
+    } catch (e) {
+      debugPrint("Error Google Login: $e");
+      stateGoogleLogin.value = ErrorState("Falha ao entrar com Google");
+    }
+  }
+
   findCompanies() async {
     stateCompanies.value = LoadingState();
     try {
       ResponseModel response = await _authUseCase.getCompanies();
       if (response.success) {
-        stateCompanies.value = SuccessState(response.data as List<CompaniesModel>);
-        SharedPreferences.getInstance().then((prefs) {
-          prefs.setInt('type', response.data[0].type);
-          if (prefs.getInt('company') == null) {
-            prefs.setInt('company', response.data[0].id);
+        final companies = response.data as List<CompaniesModel>;
+        stateCompanies.value = SuccessState(companies);
+        if (companies.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt('type', companies[0].type ?? 0);
+          final currentCompany = prefs.getInt('company') ?? 0;
+          if (currentCompany <= 0) {
+            await prefs.setInt('company', companies[0].id ?? 0);
           }
-        });
+          // garante refresh da home após sincronizar empresa ativa
+          homeRefreshNotifier.value++;
+        }
       } else {
         stateCompanies.value = ErrorState("Save Error!");
       }

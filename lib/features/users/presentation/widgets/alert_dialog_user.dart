@@ -175,9 +175,7 @@ class _AlertDialogUserState extends State<AlertDialogUser> {
                           children: [
                             const Text(
                               "Empresas",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: TextStyle(),
                             ),
                             const Spacing(),
                             ValueListenableBuilder(

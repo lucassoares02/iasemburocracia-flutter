@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/response_model.dart';
@@ -56,6 +58,14 @@ class MenuItemsRepository {
     try {
       ResponseModel response = await httpService.delete("menu_items/$id");
       return response;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ResponseModel> uploadImage(Uint8List bytes, String filename, String mimeType) async {
+    try {
+      return await httpService.uploadFile('menu_items/upload-image', bytes, filename, mimeType);
     } catch (e) {
       rethrow;
     }

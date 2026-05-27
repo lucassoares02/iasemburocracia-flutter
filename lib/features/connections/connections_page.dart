@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:portal_assoc/features/companies/companies_controller.dart';
@@ -6,12 +7,128 @@ import 'package:portal_assoc/features/companies/companies_usecase.dart';
 import 'package:portal_assoc/features/connections/connections_model.dart';
 import 'package:portal_assoc/features/connections/widgets/alert_dialog_connections.dart';
 import 'package:portal_assoc/shared/widgets/loading_container.dart';
-import 'package:portal_assoc/shared/widgets/special_button.dart';
 import '../../core/state/app_state.dart';
 import '../companies/companies_model.dart';
 import 'connections_controller.dart';
 import 'connections_repository.dart';
 import 'connections_usecase.dart';
+
+// ─── Design Tokens ────────────────────────────────────────────────────────────
+
+class _DS {
+  static const double s1 = 4.0;
+  static const double s2 = 8.0;
+  static const double s3 = 12.0;
+  static const double s4 = 16.0;
+  static const double s5 = 20.0;
+  static const double s6 = 24.0;
+  static const double s7 = 28.0;
+  static const double rMd = 8.0;
+  static const double rLg = 12.0;
+  static const double rXl = 16.0;
+  static const double rXxl = 20.0;
+  static const double rFull = 9999.0;
+
+  static const Color ink = Color(0xFF1C1C1E);
+  static const Color slate = Color(0xFF555A6A);
+  static const Color steel = Color(0xFF6B6F7E);
+  static const Color stone = Color(0xFF8E91A0);
+  static const Color canvas = Color(0xFFFFFFFF);
+  static const Color surface = Color(0xFFF7F8FA);
+  static const Color hairline = Color(0xFFE0E2E8);
+  static const Color hairlineSoft = Color(0xFFEEF0F3);
+  static const Color brandBlue = Color(0xFF4262FF);
+  static const Color successAccent = Color(0xFF00B473);
+  static const Color successSubtle = Color(0xFFF0FDF4);
+  static const Color successBorder = Color(0xFFBBF7D0);
+  static const Color successText = Color(0xFF15803D);
+  static const Color danger = Color(0xFFEF4444);
+  static const Color dangerSubtle = Color(0xFFFEF2F2);
+  static const Color dangerBorder = Color(0xFFFECACA);
+  static const Color waGreen = Color(0xFF25D366);
+  static const Color waGreenSubtle = Color(0xFFDCFCE7);
+}
+
+// ─── Status helpers ───────────────────────────────────────────────────────────
+
+Color _statusColor(String? status) {
+  switch (status) {
+    case 'open':
+      return _DS.successAccent;
+    case 'connecting':
+      return _DS.brandBlue;
+    case 'close':
+    case 'closed':
+      return _DS.stone;
+    default:
+      return _DS.danger;
+  }
+}
+
+Color _statusBg(String? status) {
+  switch (status) {
+    case 'open':
+      return _DS.successSubtle;
+    case 'connecting':
+      return const Color(0xFFEEF2FF);
+    case 'close':
+    case 'closed':
+      return _DS.surface;
+    default:
+      return _DS.dangerSubtle;
+  }
+}
+
+Color _statusBorder(String? status) {
+  switch (status) {
+    case 'open':
+      return _DS.successBorder;
+    case 'connecting':
+      return const Color(0xFFC7D2FE);
+    case 'close':
+    case 'closed':
+      return _DS.hairline;
+    default:
+      return _DS.dangerBorder;
+  }
+}
+
+String _statusLabel(String? status) {
+  switch (status) {
+    case 'open':
+      return 'Conectado';
+    case 'connecting':
+      return 'Conectando';
+    case 'close':
+    case 'closed':
+      return 'Desconectado';
+    default:
+      return status ?? 'Desconhecido';
+  }
+}
+
+String _integrationLabel(String? integration) {
+  switch (integration) {
+    case 'WHATSAPP-BAILEYS':
+      return 'WhatsApp Baileys';
+    case 'WHATSAPP-BUSINESS':
+      return 'WhatsApp Business';
+    default:
+      return integration ?? 'WhatsApp';
+  }
+}
+
+IconData _integrationIcon(String? integration) {
+  switch (integration) {
+    case 'WHATSAPP-BAILEYS':
+    case 'WHATSAPP-BUSINESS':
+      return LucideIcons.messageCircle;
+    default:
+      return LucideIcons.zap;
+  }
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 class ConnectionsPage extends StatefulWidget {
   const ConnectionsPage({super.key});
@@ -21,124 +138,76 @@ class ConnectionsPage extends StatefulWidget {
 }
 
 class _ConnectionsPageState extends State<ConnectionsPage> {
-  late final ConnectionsController controller = ConnectionsController(StartState(), ConnectionsUseCase(ConnectionsRepository()));
-  late final CompaniesController companiesController = CompaniesController(StartState(), CompaniesUseCase(CompaniesRepository()));
+  late final ConnectionsController _ctrl = ConnectionsController(
+    StartState(),
+    ConnectionsUseCase(ConnectionsRepository()),
+  );
+  late final CompaniesController _companyCtrl = CompaniesController(
+    StartState(),
+    CompaniesUseCase(CompaniesRepository()),
+  );
 
   @override
   void initState() {
-    controller.findAll();
-    companiesController.find();
     super.initState();
+    _ctrl.findAll();
+    _companyCtrl.find();
   }
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(28),
+        color: _DS.surface,
+        padding: const EdgeInsets.all(_DS.s7),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Conexões",
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: colors.onSurface,
-                            letterSpacing: -0.5,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      "Gerencie suas integrações com WhatsApp",
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: colors.onSurfaceVariant,
-                          ),
-                    ),
-                  ],
-                ),
-                ValueListenableBuilder(
-                  valueListenable: companiesController.stateFind,
-                  builder: (context, value, child) {
-                    if (value is LoadingState) {
-                      return const LoadingContainer(width: 150, height: 40);
-                    }
-                    if (value is ErrorState) {
-                      return const SizedBox.shrink();
-                    }
-                    if (value is SuccessState) {
-                      CompaniesModel company = value.data;
-                      return SpecialButton(
-                        icon: Icons.add_rounded,
-                        color: colors.primary,
-                        label: "Nova Conexão",
-                        onPressButton: () {
-                          controller.create(
-                            ConnectionsModel.fromJson({
-                              "description": "Integração WhatsApp Baileys",
-                              "instanceName": company.name!.toLowerCase().replaceAll(" ", "_"),
-                              "integration": "WHATSAPP-BAILEYS",
-                              "qrcode": true,
-                              "company": company.id,
-                            }),
-                          );
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialogConnections(
-                              controller: controller,
-                              instance: company.name!.toLowerCase().replaceAll(" ", "_"),
-                            ),
-                          );
-                        },
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 28),
-
-            // Connections list
-            ValueListenableBuilder(
-              valueListenable: controller.stateFindAll,
-              builder: (context, value, child) {
-                if (value is LoadingState) {
-                  return _buildSkeletonList();
-                }
-                if (value is ErrorState) {
-                  return _buildErrorState(context, colors);
-                }
-                if (value is SuccessState) {
-                  List<ConnectionsModel> connections = value.data;
-                  if (connections.isEmpty) {
-                    return _buildEmptyState(context, colors);
+            _buildHeader(),
+            const SizedBox(height: _DS.s6),
+            Expanded(
+              child: ValueListenableBuilder<StateApp>(
+                valueListenable: _ctrl.stateFindAll,
+                builder: (context, state, _) {
+                  if (state is LoadingState) {
+                    return _buildLoadingContent();
                   }
-                  return Expanded(
-                    child: ListView.separated(
-                      itemCount: connections.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        return _ConnectionCard(
-                          connection: connections[index],
-                          colors: colors,
-                          controller: controller,
-                        );
-                      },
-                    ),
-                  );
-                }
-                return const SizedBox.shrink();
-              },
+                  if (state is ErrorState) {
+                    return _buildErrorState();
+                  }
+                  if (state is SuccessState) {
+                    final connections = state.data as List<ConnectionsModel>;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _ConnectionsSummary(connections: connections),
+                        const SizedBox(height: _DS.s5),
+                        if (connections.isEmpty)
+                          Expanded(child: _buildEmptyState())
+                        else
+                          Expanded(
+                            child: ListView.separated(
+                              itemCount: connections.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: _DS.s3),
+                              itemBuilder: (_, i) => _ConnectionCard(
+                                connection: connections[i],
+                                controller: _ctrl,
+                                onDeleted: _ctrl.findAll,
+                                onReconnect: () {
+                                  final cs = _companyCtrl.stateFind.value;
+                                  if (cs is SuccessState) {
+                                    _openQrDialog(cs.data as CompaniesModel, connections[i].instanceName!);
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
             ),
           ],
         ),
@@ -146,253 +215,747 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     );
   }
 
-  Widget _buildSkeletonList() {
-    return Expanded(
-      child: ListView.separated(
-        itemCount: 4,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (_, __) => const LoadingContainer(
-          width: double.maxFinite,
-          height: 80,
+  Widget _buildHeader() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Conexões',
+                style: TextStyle(
+                  fontSize: 20,
+                  color: _DS.ink,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Gerencie integrações com canais externos',
+                style: TextStyle(fontSize: 13, color: _DS.steel, height: 1.4),
+              ),
+            ],
+          ),
         ),
+        ValueListenableBuilder<StateApp>(
+          valueListenable: _companyCtrl.stateFind,
+          builder: (context, state, _) {
+            if (state is! SuccessState) return const SizedBox.shrink();
+            final company = state.data as CompaniesModel;
+            return FilledButton.icon(
+              onPressed: () => _createConnection(company),
+              icon: const Icon(LucideIcons.plus, size: 16),
+              label: const Text('Nova conexão'),
+              style: FilledButton.styleFrom(
+                backgroundColor: _DS.ink,
+                foregroundColor: Colors.white,
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                textStyle: const TextStyle(
+                  fontSize: 14,
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  void _createConnection(CompaniesModel company) {
+    final slug = company.name!.toLowerCase().replaceAll(' ', '_');
+    final state = _ctrl.stateFindAll.value;
+    final existing = state is SuccessState ? (state.data as List<ConnectionsModel>).map((c) => c.instanceName ?? '').toList() : <String>[];
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialogConnections(
+        controller: _ctrl,
+        defaultInstanceName: slug,
+        companyId: company.id!,
+        existingInstanceNames: existing,
       ),
     );
   }
 
-  Widget _buildErrorState(BuildContext context, ColorScheme colors) {
-    return Expanded(
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: colors.errorContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.error_outline_rounded, color: colors.onErrorContainer, size: 28),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              "Erro ao carregar conexões",
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colors.onSurface,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              "Tente novamente em alguns instantes.",
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-            ),
-          ],
-        ),
+  void _openQrDialog(CompaniesModel company, String instanceName) {
+    final state = _ctrl.stateFindAll.value;
+    final existing = state is SuccessState ? (state.data as List<ConnectionsModel>).map((c) => c.instanceName ?? '').where((n) => n != instanceName).toList() : <String>[];
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialogConnections(
+        controller: _ctrl,
+        defaultInstanceName: instanceName,
+        companyId: company.id!,
+        existingInstanceNames: existing,
       ),
     );
   }
 
-  Widget _buildEmptyState(BuildContext context, ColorScheme colors) {
-    return Expanded(
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: colors.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Icon(
-                Icons.wifi_tethering_rounded,
-                size: 34,
-                color: colors.onSurfaceVariant.withOpacity(0.5),
+  Widget _buildLoadingContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Summary skeleton
+        Row(
+          children: List.generate(
+            4,
+            (i) => Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: i < 3 ? _DS.s3 : 0),
+                child: const LoadingContainer(height: 72, width: double.maxFinite),
               ),
             ),
-            const SizedBox(height: 20),
-            Text(
-              "Nenhuma conexão encontrada",
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colors.onSurface,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              "Crie uma nova conexão para começar.",
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-            ),
-          ],
+          ),
         ),
+        const SizedBox(height: _DS.s5),
+        ...List.generate(
+          4,
+          (_) => const Padding(
+            padding: EdgeInsets.only(bottom: _DS.s3),
+            child: LoadingContainer(height: 88, width: double.maxFinite),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: _DS.dangerSubtle,
+              borderRadius: BorderRadius.circular(_DS.rXl),
+            ),
+            child: const Icon(LucideIcons.wifiOff, color: _DS.danger, size: 26),
+          ),
+          const SizedBox(height: _DS.s4),
+          const Text(
+            'Erro ao carregar conexões',
+            style: TextStyle(fontSize: 16, color: _DS.ink),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Tente novamente em alguns instantes.',
+            style: TextStyle(fontSize: 14, color: _DS.steel),
+          ),
+          const SizedBox(height: _DS.s5),
+          OutlinedButton.icon(
+            onPressed: _ctrl.findAll,
+            icon: const Icon(LucideIcons.refreshCw, size: 15),
+            label: const Text('Tentar novamente'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _DS.ink,
+              side: const BorderSide(color: _DS.hairline),
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: _DS.waGreenSubtle,
+              borderRadius: BorderRadius.circular(_DS.rXxl),
+            ),
+            child: const Icon(LucideIcons.plugZap, size: 36, color: _DS.waGreen),
+          ),
+          const SizedBox(height: _DS.s5),
+          const Text(
+            'Conecte seu negócio com canais externos',
+            style: TextStyle(
+              fontSize: 17,
+              color: _DS.ink,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Integre WhatsApp, webhooks e outros canais\npara automatizar o atendimento.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: _DS.steel, height: 1.55),
+          ),
+          const SizedBox(height: _DS.s6),
+          ValueListenableBuilder<StateApp>(
+            valueListenable: _companyCtrl.stateFind,
+            builder: (context, state, _) {
+              if (state is! SuccessState) return const SizedBox.shrink();
+              final company = state.data as CompaniesModel;
+              return FilledButton.icon(
+                onPressed: () => _createConnection(company),
+                icon: const Icon(LucideIcons.plus, size: 16),
+                label: const Text('+ Nova conexão'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _DS.ink,
+                  foregroundColor: Colors.white,
+                  shape: const StadiumBorder(),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  textStyle: const TextStyle(fontSize: 15),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
 }
+
+// ─── Summary Strip ────────────────────────────────────────────────────────────
+
+class _ConnectionsSummary extends StatelessWidget {
+  const _ConnectionsSummary({required this.connections});
+
+  final List<ConnectionsModel> connections;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = connections.length;
+    final active = connections.where((c) => c.status == 'open').length;
+    final errors = connections.where((c) => c.status != null && c.status != 'open' && c.status != 'connecting').length;
+    final connecting = connections.where((c) => c.status == 'connecting').length;
+
+    return Row(
+      children: [
+        Expanded(
+          child: _SummaryTile(
+            label: 'Total',
+            value: '$total',
+            icon: LucideIcons.link2,
+            iconColor: _DS.slate,
+            iconBg: _DS.hairlineSoft,
+          ),
+        ),
+        const SizedBox(width: _DS.s3),
+        Expanded(
+          child: _SummaryTile(
+            label: 'Ativas',
+            value: '$active',
+            icon: LucideIcons.checkCircle2,
+            iconColor: _DS.successText,
+            iconBg: _DS.successSubtle,
+          ),
+        ),
+        const SizedBox(width: _DS.s3),
+        Expanded(
+          child: _SummaryTile(
+            label: 'Conectando',
+            value: '$connecting',
+            icon: LucideIcons.loader,
+            iconColor: _DS.brandBlue,
+            iconBg: const Color(0xFFEEF2FF),
+          ),
+        ),
+        const SizedBox(width: _DS.s3),
+        Expanded(
+          child: _SummaryTile(
+            label: 'Com erro',
+            value: '$errors',
+            icon: LucideIcons.alertCircle,
+            iconColor: _DS.danger,
+            iconBg: _DS.dangerSubtle,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SummaryTile extends StatelessWidget {
+  const _SummaryTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.iconColor,
+    required this.iconBg,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: _DS.s4, vertical: _DS.s3),
+      decoration: BoxDecoration(
+        color: _DS.canvas,
+        borderRadius: BorderRadius.circular(_DS.rXl),
+        border: Border.all(color: _DS.hairlineSoft),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(_DS.rLg)),
+            child: Icon(icon, size: 17, color: iconColor),
+          ),
+          const SizedBox(width: _DS.s3),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 20,
+                  color: _DS.ink,
+                  height: 1.1,
+                ),
+              ),
+              Text(label, style: const TextStyle(fontSize: 11, color: _DS.stone)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Connection Card ──────────────────────────────────────────────────────────
 
 class _ConnectionCard extends StatefulWidget {
   const _ConnectionCard({
     required this.connection,
-    required this.colors,
     required this.controller,
+    required this.onDeleted,
+    required this.onReconnect,
   });
 
   final ConnectionsModel connection;
-  final ColorScheme colors;
   final ConnectionsController controller;
+  final VoidCallback onDeleted;
+  final VoidCallback onReconnect;
 
   @override
-  State<_ConnectionCard> createState() => _ConnectionCardState(controller: controller);
+  State<_ConnectionCard> createState() => _ConnectionCardState();
 }
 
 class _ConnectionCardState extends State<_ConnectionCard> {
-  _ConnectionCardState({required this.controller});
-
-  final ConnectionsController controller;
-
   bool _hovered = false;
+  bool _testing = false;
+  bool? _testResult; // null = não testado
+  bool _deleting = false;
+  Timer? _resetTimer;
 
-  String _integrationLabel(String? integration) {
-    switch (integration) {
-      case 'WHATSAPP-BAILEYS':
-        return 'WhatsApp Baileys';
-      case 'WHATSAPP-BUSINESS':
-        return 'WhatsApp Business';
-      default:
-        return integration ?? 'Integrado';
-    }
+  @override
+  void dispose() {
+    _resetTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleTest() async {
+    if (_testing) return;
+    setState(() {
+      _testing = true;
+      _testResult = null;
+    });
+    final ok = await widget.controller.testConnection(widget.connection.instanceName!);
+    if (!mounted) return;
+    setState(() {
+      _testing = false;
+      _testResult = ok;
+    });
+    _resetTimer?.cancel();
+    _resetTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _testResult = null);
+    });
+  }
+
+  Future<void> _handleDelete() async {
+    setState(() => _deleting = true);
+    await widget.controller.delete(
+      widget.connection.id!,
+      widget.connection.instanceName!,
+    );
+    if (!mounted) return;
+    setState(() => _deleting = false);
+    widget.onDeleted();
   }
 
   @override
   Widget build(BuildContext context) {
-    final colors = widget.colors;
+    final conn = widget.connection;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: const Duration(milliseconds: 150),
         curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         decoration: BoxDecoration(
-          color: _hovered ? colors.surfaceContainerHighest.withOpacity(0.5) : colors.surfaceContainerHighest.withOpacity(0.25),
-          borderRadius: BorderRadius.circular(16),
+          color: _hovered ? const Color(0xFFFAFAFC) : _DS.canvas,
+          borderRadius: BorderRadius.circular(_DS.rXl),
           border: Border.all(
-            color: _hovered ? colors.outlineVariant.withOpacity(0.7) : colors.outlineVariant.withOpacity(0.35),
-            width: 1,
+            color: _hovered ? _DS.hairline : _DS.hairlineSoft,
           ),
-          boxShadow: _hovered
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : [],
         ),
+        padding: const EdgeInsets.symmetric(horizontal: _DS.s5, vertical: _DS.s4),
         child: Row(
           children: [
             // Icon
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: const Color(0xFF25D366).withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                LucideIcons.messageCircle,
-                color: Color(0xFF25D366),
-                size: 22,
-              ),
-            ),
-
-            const SizedBox(width: 16),
+            _IntegrationIcon(integration: conn.integration),
+            const SizedBox(width: _DS.s4),
 
             // Info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    widget.connection.instanceName ?? "Sem nome de instância",
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: colors.onSurface,
-                          letterSpacing: -0.2,
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          conn.instanceName ?? '—',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            color: _DS.ink,
+                            letterSpacing: -0.2,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
+                      ),
+                      const SizedBox(width: _DS.s2),
+                      _IntegrationBadge(integration: conn.integration),
+                    ],
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
-                    widget.connection.description ?? "Sem descrição",
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
-                        ),
+                    conn.description?.isNotEmpty == true
+                        ? conn.description!
+                        : (conn.instanceId != null ? 'ID: ${conn.instanceId!.length > 22 ? '${conn.instanceId!.substring(0, 22)}…' : conn.instanceId}' : 'Sem descrição'),
+                    style: const TextStyle(fontSize: 12, color: _DS.stone),
                   ),
                 ],
               ),
             ),
+            const SizedBox(width: _DS.s4),
 
-            const SizedBox(width: 12),
-
-            // Badge
-            Row(
+            // Status + Actions
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                IconButton(
-                  onPressed: () async {
-                    await widget.controller.delete(widget.connection.id!, widget.connection.instanceName!);
-                    widget.controller.findAll();
-                  },
-                  icon: const Icon(
-                    LucideIcons.trash2,
-                    size: 18,
-                    color: Colors.red,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: colors.primaryContainer.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: colors.primary.withOpacity(0.2),
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF25D366),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _integrationLabel(widget.connection.integration),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: colors.onPrimaryContainer,
-                          letterSpacing: 0.1,
-                        ),
-                      ),
-                    ],
-                  ),
+                _StatusBadge(status: conn.status),
+                const SizedBox(height: _DS.s2),
+                _ActionRow(
+                  testing: _testing,
+                  testResult: _testResult,
+                  deleting: _deleting,
+                  onTest: _handleTest,
+                  onReconnect: widget.onReconnect,
+                  onDelete: _handleDelete,
                 ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Integration Icon ─────────────────────────────────────────────────────────
+
+class _IntegrationIcon extends StatelessWidget {
+  const _IntegrationIcon({this.integration});
+  final String? integration;
+
+  @override
+  Widget build(BuildContext context) {
+    final isWa = integration == null || integration == 'WHATSAPP-BAILEYS' || integration == 'WHATSAPP-BUSINESS';
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: isWa ? _DS.waGreenSubtle : const Color(0xFFEEF2FF),
+        borderRadius: BorderRadius.circular(_DS.rLg),
+      ),
+      child: Icon(
+        _integrationIcon(integration),
+        color: isWa ? _DS.waGreen : _DS.brandBlue,
+        size: 22,
+      ),
+    );
+  }
+}
+
+// ─── Integration Badge ────────────────────────────────────────────────────────
+
+class _IntegrationBadge extends StatelessWidget {
+  const _IntegrationBadge({this.integration});
+  final String? integration;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: _DS.s2, vertical: 3),
+      decoration: BoxDecoration(
+        color: _DS.surface,
+        borderRadius: BorderRadius.circular(_DS.rFull),
+        border: Border.all(color: _DS.hairline),
+      ),
+      child: Text(
+        _integrationLabel(integration),
+        style: const TextStyle(
+          fontSize: 10,
+          color: _DS.slate,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Status Badge ─────────────────────────────────────────────────────────────
+
+class _StatusBadge extends StatefulWidget {
+  const _StatusBadge({this.status});
+  final String? status;
+
+  @override
+  State<_StatusBadge> createState() => _StatusBadgeState();
+}
+
+class _StatusBadgeState extends State<_StatusBadge> with SingleTickerProviderStateMixin {
+  late AnimationController _pulse;
+  late Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _opacity = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
+    );
+    if (widget.status == 'connecting') {
+      _pulse.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(_StatusBadge old) {
+    super.didUpdateWidget(old);
+    if (widget.status == 'connecting') {
+      if (!_pulse.isAnimating) _pulse.repeat(reverse: true);
+    } else {
+      _pulse.stop();
+      _pulse.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = widget.status;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: _statusBg(status),
+        borderRadius: BorderRadius.circular(_DS.rFull),
+        border: Border.all(color: _statusBorder(status)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FadeTransition(
+            opacity: _opacity,
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: _statusColor(status),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            _statusLabel(status),
+            style: TextStyle(
+              fontSize: 11,
+              color: _statusColor(status),
+              letterSpacing: 0.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Action Row ───────────────────────────────────────────────────────────────
+
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({
+    required this.testing,
+    required this.testResult,
+    required this.deleting,
+    required this.onTest,
+    required this.onReconnect,
+    required this.onDelete,
+  });
+
+  final bool testing;
+  final bool? testResult;
+  final bool deleting;
+  final VoidCallback onTest;
+  final VoidCallback onReconnect;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Test result indicator
+        if (testResult != null) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: testResult! ? _DS.successSubtle : _DS.dangerSubtle,
+              borderRadius: BorderRadius.circular(_DS.rFull),
+              border: Border.all(
+                color: testResult! ? _DS.successBorder : _DS.dangerBorder,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  testResult! ? LucideIcons.checkCircle2 : LucideIcons.xCircle,
+                  size: 11,
+                  color: testResult! ? _DS.successText : _DS.danger,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  testResult! ? 'Online' : 'Offline',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: testResult! ? _DS.successText : _DS.danger,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: _DS.s2),
+        ],
+
+        // Test button
+        _SmallButton(
+          onPressed: onTest,
+          loading: testing,
+          icon: LucideIcons.activity,
+          tooltip: 'Testar conexão',
+          color: _DS.brandBlue,
+          bgColor: const Color(0xFFEEF2FF),
+        ),
+        const SizedBox(width: _DS.s1),
+
+        // Reconnect
+        _SmallButton(
+          onPressed: onReconnect,
+          icon: LucideIcons.refreshCw,
+          tooltip: 'Reconectar',
+          color: _DS.slate,
+          bgColor: _DS.surface,
+        ),
+        const SizedBox(width: _DS.s1),
+
+        // Delete
+        _SmallButton(
+          onPressed: onDelete,
+          loading: deleting,
+          icon: LucideIcons.trash2,
+          tooltip: 'Excluir',
+          color: _DS.danger,
+          bgColor: _DS.dangerSubtle,
+        ),
+      ],
+    );
+  }
+}
+
+class _SmallButton extends StatefulWidget {
+  const _SmallButton({
+    required this.onPressed,
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.bgColor,
+    this.loading = false,
+  });
+
+  final VoidCallback onPressed;
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final Color bgColor;
+  final bool loading;
+
+  @override
+  State<_SmallButton> createState() => _SmallButtonState();
+}
+
+class _SmallButtonState extends State<_SmallButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 600),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.loading ? null : widget.onPressed,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 130),
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: _hovered ? widget.bgColor : Colors.transparent,
+              borderRadius: BorderRadius.circular(_DS.rMd),
+            ),
+            child: widget.loading
+                ? Center(
+                    child: SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: widget.color,
+                      ),
+                    ),
+                  )
+                : Icon(widget.icon, size: 15, color: widget.color),
+          ),
         ),
       ),
     );

@@ -30,6 +30,12 @@ class CompaniesUseCase {
     return await repository.update(data);
   }
 
+  Future<ResponseModel> addressAutocomplete(String input, {String? sessionToken}) =>
+      repository.addressAutocomplete(input, sessionToken: sessionToken);
+
+  Future<ResponseModel> addressDetails(String placeId, {String? sessionToken}) =>
+      repository.addressDetails(placeId, sessionToken: sessionToken);
+
   Future<ResponseModel> updateBusiness(BusinessAddressModel data) async {
     return await repository.updateBusiness(data);
   }

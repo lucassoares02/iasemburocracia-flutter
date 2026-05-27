@@ -74,7 +74,7 @@ class _ButtonSideState extends State<ButtonSide> {
                     Text(
                       widget.description!,
                       style: TextStyle(
-                        fontWeight: widget.selected ? FontWeight.bold : FontWeight.w400,
+                        fontWeight: widget.selected ? FontWeight.bold : FontWeight.normal,
                         fontSize: 14,
                         color: widget.selected
                             ? Theme.of(context).colorScheme.primary

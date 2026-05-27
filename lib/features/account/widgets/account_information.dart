@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_multi_formatter/formatters/masked_input_formatter.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:portal_assoc/core/providers/onboarding_provider.dart';
 import 'package:portal_assoc/core/state/app_state.dart';
 import 'package:portal_assoc/core/utils/format_date.dart';
 import 'package:portal_assoc/core/utils/invert_date_format.dart';
@@ -11,6 +12,7 @@ import 'package:portal_assoc/features/account/account_model.dart';
 import 'package:portal_assoc/features/account/widgets/base_account.dart';
 import 'package:portal_assoc/shared/widgets/custom_input.dart';
 import 'package:portal_assoc/shared/widgets/loading_container.dart';
+import 'package:provider/provider.dart';
 
 class AccountInformation extends StatefulWidget {
   const AccountInformation({super.key, required this.controller});
@@ -86,7 +88,8 @@ class _AccountInformationState extends State<AccountInformation> {
       });
 
       await widget.controller.update(updatedAccount);
-
+      if (!mounted) return;
+      context.read<OnboardingProvider>().refresh(silent: true);
       setState(() {
         _isEditing = false;
       });
@@ -174,9 +177,7 @@ class _AccountInformationState extends State<AccountInformation> {
             const SizedBox(height: 16),
             Text(
               "Erro ao carregar informações",
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(),
             ),
             const SizedBox(height: 8),
             Text(
@@ -361,7 +362,6 @@ class _AccountInformationState extends State<AccountInformation> {
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 28,
-                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -379,9 +379,7 @@ class _AccountInformationState extends State<AccountInformation> {
                 children: [
                   Text(
                     account.name ?? "Nome não disponível",
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(),
                   ),
                   Row(
                     children: [
@@ -443,7 +441,6 @@ class _AccountInformationState extends State<AccountInformation> {
         Text(
           title,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
                 color: Colors.grey[800],
               ),
         ),
@@ -514,7 +511,6 @@ class _AccountInformationState extends State<AccountInformation> {
                   label,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Colors.grey[600],
-                        fontWeight: FontWeight.w500,
                       ),
                 ),
                 const SizedBox(height: 8),
@@ -528,9 +524,7 @@ class _AccountInformationState extends State<AccountInformation> {
                 else
                   Text(
                     value,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(),
                   ),
               ],
             ),
@@ -571,7 +565,6 @@ class _AccountInformationState extends State<AccountInformation> {
                   label,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Colors.grey[600],
-                        fontWeight: FontWeight.w500,
                       ),
                 ),
                 const SizedBox(height: 8),
@@ -610,7 +603,6 @@ class _AccountInformationState extends State<AccountInformation> {
             isActive ? "Ativa" : "Inativa",
             style: TextStyle(
               color: isActive ? Colors.green[700] : Colors.red[700],
-              fontWeight: FontWeight.w600,
               fontSize: 12,
             ),
           ),

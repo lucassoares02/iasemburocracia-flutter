@@ -51,13 +51,13 @@ class InputComponentState extends State<InputComponent> {
             children: [
               Text(
                 widget.title!,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(),
               ),
               if (widget.required == true) ...[
                 const SizedBox(width: 2),
                 const Text(
                   "*",
-                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12),
+                  style: TextStyle(color: Colors.red, fontSize: 12),
                 ),
               ]
             ],

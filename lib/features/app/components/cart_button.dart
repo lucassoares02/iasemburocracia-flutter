@@ -60,7 +60,7 @@ class CartButton extends StatelessWidget {
                               //     fontSize: 10,
                               //     letterSpacing: 0.5,
                               //     color: theme.colorScheme.onPrimary.withOpacity(0.8),
-                              //     fontWeight: FontWeight.w600,
+                              // ,
                               //   ),
                               // ),
                             ],

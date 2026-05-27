@@ -5,23 +5,29 @@ import 'connections_entity.dart';
 class ConnectionsModel extends ConnectionsEntity {
   ConnectionsModel.fromJson(Map<String, dynamic> json) {
     id = json['id'];
-    description = json['description'];
+    instanceId = json['instanceId'];
     instanceName = json['instanceName'];
+    description = json['description'];
     integration = json['integration'];
+    status = json['status'];
+    createdAt = json['createdAt'];
     qrcode = json['qrcode'];
     company = json['company'];
     websocket = json['websocket'] != null ? WebsocketModel.fromJson(json['websocket']) : null;
   }
 
   Map<String, dynamic> toJson() {
-    final Map<String, dynamic> data = <String, dynamic>{};
-    data['id'] = id;
-    data['description'] = description;
-    data['instanceName'] = instanceName;
-    data['integration'] = integration;
-    data['qrcode'] = qrcode;
-    data['company'] = company;
-    data['websocket'] = websocket?.toJson();
-    return data;
+    return {
+      'id': id,
+      'instanceId': instanceId,
+      'instanceName': instanceName,
+      'description': description,
+      'integration': integration,
+      'status': status,
+      'createdAt': createdAt,
+      'qrcode': qrcode,
+      'company': company,
+      'websocket': websocket?.toJson(),
+    };
   }
 }

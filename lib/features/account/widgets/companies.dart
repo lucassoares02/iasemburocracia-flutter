@@ -189,7 +189,7 @@
 //             Text(
 //               "Erro ao carregar empresas",
 //               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-//                     fontWeight: FontWeight.w600,
+//     
 //                   ),
 //             ),
 //             const SizedBox(height: 8),
@@ -228,7 +228,7 @@
 //             Text(
 //               "Nenhuma empresa cadastrada",
 //               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-//                     fontWeight: FontWeight.w600,
+//     
 //                   ),
 //             ),
 //             const SizedBox(height: 8),
@@ -452,7 +452,7 @@
 //                   Text(
 //                     (company.nomeFantasia != null && company.nomeFantasia != "") ? company.nomeFantasia.toString() : company.razaoSocial ?? "Não informado",
 //                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-//                           fontWeight: FontWeight.w700,
+//           
 //                         ),
 //                   ),
 //                   // Row(
@@ -515,7 +515,7 @@
 //             Text(
 //               title,
 //               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-//                     fontWeight: FontWeight.w600,
+//     
 //                     color: Colors.grey[800],
 //                   ),
 //             ),
@@ -588,7 +588,7 @@
 //                   label,
 //                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
 //                         color: Colors.grey[600],
-//                         fontWeight: FontWeight.w500,
+//         
 //                       ),
 //                 ),
 //                 const SizedBox(height: 8),
@@ -627,7 +627,7 @@
 //                             ),
 //                           ),
 //                           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-//                                 fontWeight: FontWeight.w500,
+//                 
 //                               ),
 //                         ),
 //                       ),
@@ -648,7 +648,7 @@
 //                       Text(
 //                         value,
 //                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-//                               fontWeight: FontWeight.w500,
+//               
 //                             ),
 //                       ),
 //                       if (isEditable)
@@ -687,7 +687,7 @@
 //                     type == 2 ? "Habilitado para vender" : "Habilitado para comprar",
 //                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
 //                           color: type == 2 ? Colors.blue : Colors.green,
-//                           fontWeight: FontWeight.w600,
+//           
 //                         ),
 //                   ),
 //                 ],
@@ -729,7 +729,7 @@
 //                   label,
 //                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
 //                         color: Colors.grey[600],
-//                         fontWeight: FontWeight.w500,
+//         
 //                       ),
 //                 ),
 //                 const SizedBox(height: 8),
@@ -770,7 +770,7 @@
 //             status.isEmpty ? "Não informado" : status,
 //             style: TextStyle(
 //               color: isActive ? Colors.green[700] : Colors.orange[700],
-//               fontWeight: FontWeight.w600,
+//     
 //               fontSize: 12,
 //             ),
 //           ),

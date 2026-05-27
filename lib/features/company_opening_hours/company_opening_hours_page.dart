@@ -120,9 +120,25 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
 
   // ─── Dialog ────────────────────────────────────────────────────────────────
 
+  Set<int> _currentlyConfiguredWeekdays() {
+    final state = controller.stateFindAll.value;
+    if (state is SuccessState && state.data is List) {
+      return (state.data as List).whereType<CompanyOpeningHoursModel>().map((h) => h.weekday).whereType<int>().toSet();
+    }
+    return {};
+  }
+
   void _showAddEditDialog({CompanyOpeningHoursModel? existingHours}) {
     final formKey = GlobalKey<FormState>();
-    int selectedWeekday = existingHours?.weekday ?? 1;
+    final isEditing = existingHours != null;
+
+    // Edit mode: single day
+    int singleWeekday = existingHours?.weekday ?? 1;
+    // Create mode: multi-select set of weekdays (1..7)
+    final Set<int> selectedWeekdays = isEditing ? {} : <int>{};
+
+    final existingWeekdays = isEditing ? <int>{} : _currentlyConfiguredWeekdays();
+
     bool isClosed = existingHours?.isClosed ?? false;
     TimeOfDay opensAt = existingHours?.opensAt != null ? _parseTimeOfDay(existingHours!.opensAt!) : const TimeOfDay(hour: 8, minute: 0);
     TimeOfDay closesAt = existingHours?.closesAt != null ? _parseTimeOfDay(existingHours!.closesAt!) : const TimeOfDay(hour: 18, minute: 0);
@@ -130,176 +146,293 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          child: Container(
-            width: 480,
-            decoration: BoxDecoration(
-              color: _DS.surface,
-              borderRadius: BorderRadius.circular(_DS.radiusLg + 2),
-              border: Border.all(color: _DS.border),
-              boxShadow: _DS.shadowMd,
-            ),
-            child: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(_DS.s8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Dialog header
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                existingHours == null ? 'Novo Horário' : 'Editar Horário',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: _DS.textPrimary,
-                                  letterSpacing: -0.4,
-                                ),
-                              ),
-                              const SizedBox(height: _DS.s1),
-                              Text(
-                                existingHours == null ? 'Configure o horário para um dia da semana.' : 'Atualize os dados do horário selecionado.',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: _DS.textSecondary,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _DialogCloseButton(onPressed: () => Navigator.pop(context)),
-                      ],
-                    ),
+        builder: (context, setDialogState) {
+          final selectedCount = isEditing ? 1 : selectedWeekdays.length;
+          final canSave = isEditing || selectedWeekdays.isNotEmpty;
+          final saveLabel = isEditing
+              ? 'Salvar'
+              : selectedCount == 0
+                  ? 'Salvar'
+                  : selectedCount == 1
+                      ? 'Salvar 1 horário'
+                      : 'Salvar $selectedCount horários';
 
-                    const SizedBox(height: _DS.s6),
-                    const _DialogDivider(),
-                    const SizedBox(height: _DS.s6),
-
-                    // Weekday picker
-                    _DialogFieldLabel(label: 'Dia da Semana', icon: LucideIcons.calendar),
-                    const SizedBox(height: _DS.s2),
-                    _SaasDropdown<int>(
-                      value: selectedWeekday,
-                      items: weekdayNames.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
-                      onChanged: (v) => setDialogState(() => selectedWeekday = v!),
-                    ),
-
-                    const SizedBox(height: _DS.s5),
-
-                    // Closed toggle
-                    _ClosedToggleRow(
-                      isClosed: isClosed,
-                      onChanged: (v) => setDialogState(() => isClosed = v),
-                    ),
-
-                    // Time pickers (animated)
-                    AnimatedSize(
-                      duration: const Duration(milliseconds: 220),
-                      curve: Curves.easeInOut,
-                      child: isClosed
-                          ? const SizedBox.shrink()
-                          : Column(
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            child: Container(
+              width: 520,
+              decoration: BoxDecoration(
+                color: _DS.surface,
+                borderRadius: BorderRadius.circular(_DS.radiusLg + 2),
+                border: Border.all(color: _DS.border),
+                boxShadow: _DS.shadowMd,
+              ),
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(_DS.s8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Dialog header
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const SizedBox(height: _DS.s5),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          _DialogFieldLabel(label: 'Abertura', icon: LucideIcons.sunrise),
-                                          const SizedBox(height: _DS.s2),
-                                          _TimePickerButton(
-                                            time: opensAt,
-                                            onTap: () async {
-                                              final picked = await _pickTime(context, opensAt);
-                                              if (picked != null) setDialogState(() => opensAt = picked);
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: _DS.s3),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          _DialogFieldLabel(label: 'Fechamento', icon: LucideIcons.sunset),
-                                          const SizedBox(height: _DS.s2),
-                                          _TimePickerButton(
-                                            time: closesAt,
-                                            onTap: () async {
-                                              final picked = await _pickTime(context, closesAt);
-                                              if (picked != null) setDialogState(() => closesAt = picked);
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                Text(
+                                  isEditing ? 'Editar Horário' : 'Novos Horários',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    color: _DS.textPrimary,
+                                    letterSpacing: -0.4,
+                                  ),
+                                ),
+                                const SizedBox(height: _DS.s1),
+                                Text(
+                                  isEditing ? 'Atualize os dados do horário selecionado.' : 'Selecione um ou mais dias e aplique o mesmo horário a todos.',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: _DS.textSecondary,
+                                    height: 1.4,
+                                  ),
                                 ),
                               ],
                             ),
-                    ),
-
-                    const SizedBox(height: _DS.s6),
-                    const _DialogDivider(),
-                    const SizedBox(height: _DS.s5),
-
-                    // Actions
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        _SaasGhostButton(
-                          label: 'Cancelar',
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                        const SizedBox(width: _DS.s2),
-                        ValueListenableBuilder(
-                          valueListenable: controller.stateCreate,
-                          builder: (context, value, _) => SpecialButton(
-                            label: "Salvar",
-                            loading: value is LoadingState,
-                            error: value is ErrorState,
-                            color: _DS.accent,
-                            icon: LucideIcons.check,
-                            onPressButton: () async {
-                              final prefs = await SharedPreferences.getInstance();
-                              final company = prefs.getInt('company') ?? 0;
-                              if (formKey.currentState!.validate()) {
-                                final newHours = CompanyOpeningHoursModel.fromJson({
-                                  existingHours != null ? "id" : "": existingHours?.id,
-                                  "weekday": selectedWeekday,
-                                  "company_id": company,
-                                  "opens_at": isClosed ? null : _formatTimeOfDay(opensAt),
-                                  "closes_at": isClosed ? null : _formatTimeOfDay(closesAt),
-                                  "is_closed": isClosed,
-                                });
-                                existingHours == null ? controller.create(newHours) : controller.update(newHours);
-                                Navigator.pop(context);
-                              }
-                            },
                           ),
+                          _DialogCloseButton(onPressed: () => Navigator.pop(context)),
+                        ],
+                      ),
+
+                      const SizedBox(height: _DS.s6),
+                      const _DialogDivider(),
+                      const SizedBox(height: _DS.s6),
+
+                      // Weekday picker
+                      if (isEditing) ...[
+                        _DialogFieldLabel(label: 'Dia da Semana', icon: LucideIcons.calendar),
+                        const SizedBox(height: _DS.s2),
+                        _SaasDropdown<int>(
+                          value: singleWeekday,
+                          items: weekdayNames.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
+                          onChanged: (v) => setDialogState(() => singleWeekday = v!),
                         ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            _DialogFieldLabel(label: 'Dias da semana', icon: LucideIcons.calendar),
+                            const Spacer(),
+                            _PresetChip(
+                              label: 'Dias úteis',
+                              onTap: () => setDialogState(() {
+                                selectedWeekdays
+                                  ..clear()
+                                  ..addAll([1, 2, 3, 4, 5].where((d) => !existingWeekdays.contains(d)));
+                              }),
+                            ),
+                            const SizedBox(width: _DS.s1 + 2),
+                            _PresetChip(
+                              label: 'Fim de semana',
+                              onTap: () => setDialogState(() {
+                                selectedWeekdays
+                                  ..clear()
+                                  ..addAll([6, 7].where((d) => !existingWeekdays.contains(d)));
+                              }),
+                            ),
+                            const SizedBox(width: _DS.s1 + 2),
+                            _PresetChip(
+                              label: 'Todos',
+                              onTap: () => setDialogState(() {
+                                selectedWeekdays
+                                  ..clear()
+                                  ..addAll([1, 2, 3, 4, 5, 6, 7].where((d) => !existingWeekdays.contains(d)));
+                              }),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: _DS.s3),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [1, 2, 3, 4, 5, 6, 7].map((wd) {
+                            final selected = selectedWeekdays.contains(wd);
+                            final disabled = existingWeekdays.contains(wd);
+                            return _WeekdayChip(
+                              label: _weekdayAbbr[wd] ?? '',
+                              fullLabel: weekdayNames[wd] ?? '',
+                              selected: selected,
+                              disabled: disabled,
+                              onTap: disabled
+                                  ? null
+                                  : () => setDialogState(() {
+                                        if (selected) {
+                                          selectedWeekdays.remove(wd);
+                                        } else {
+                                          selectedWeekdays.add(wd);
+                                        }
+                                      }),
+                            );
+                          }).toList(),
+                        ),
+                        if (existingWeekdays.isNotEmpty) ...[
+                          const SizedBox(height: _DS.s3),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: _DS.s3, vertical: _DS.s2 + 2),
+                            decoration: BoxDecoration(
+                              color: _DS.accentSubtle,
+                              borderRadius: BorderRadius.circular(_DS.radiusSm),
+                              border: Border.all(color: _DS.border),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(LucideIcons.info, size: 13, color: _DS.textSecondary),
+                                const SizedBox(width: _DS.s2),
+                                Expanded(
+                                  child: Text(
+                                    'Dias acinzentados já possuem horário. Edite-os individualmente na lista.',
+                                    style: const TextStyle(fontSize: 11, color: _DS.textSecondary, height: 1.4),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
-                    ),
-                  ],
+
+                      const SizedBox(height: _DS.s5),
+
+                      // Closed toggle
+                      _ClosedToggleRow(
+                        isClosed: isClosed,
+                        onChanged: (v) => setDialogState(() => isClosed = v),
+                      ),
+
+                      // Time pickers (animated)
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeInOut,
+                        child: isClosed
+                            ? const SizedBox.shrink()
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: _DS.s5),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            _DialogFieldLabel(label: 'Abertura', icon: LucideIcons.sunrise),
+                                            const SizedBox(height: _DS.s2),
+                                            _TimePickerButton(
+                                              time: opensAt,
+                                              onTap: () async {
+                                                final picked = await _pickTime(context, opensAt);
+                                                if (picked != null) {
+                                                  setDialogState(() => opensAt = picked);
+                                                }
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: _DS.s3),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            _DialogFieldLabel(label: 'Fechamento', icon: LucideIcons.sunset),
+                                            const SizedBox(height: _DS.s2),
+                                            _TimePickerButton(
+                                              time: closesAt,
+                                              onTap: () async {
+                                                final picked = await _pickTime(context, closesAt);
+                                                if (picked != null) {
+                                                  setDialogState(() => closesAt = picked);
+                                                }
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                      ),
+
+                      const SizedBox(height: _DS.s6),
+                      const _DialogDivider(),
+                      const SizedBox(height: _DS.s5),
+
+                      // Actions
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          _SaasGhostButton(
+                            label: 'Cancelar',
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          const SizedBox(width: _DS.s2),
+                          ValueListenableBuilder(
+                            valueListenable: controller.stateCreate,
+                            builder: (context, value, _) => Opacity(
+                              opacity: canSave ? 1 : 0.5,
+                              child: IgnorePointer(
+                                ignoring: !canSave,
+                                child: SpecialButton(
+                                  label: saveLabel,
+                                  loading: value is LoadingState,
+                                  error: value is ErrorState,
+                                  color: _DS.accent,
+                                  icon: LucideIcons.check,
+                                  onPressButton: () async {
+                                    if (!canSave) return;
+                                    final prefs = await SharedPreferences.getInstance();
+                                    final company = prefs.getInt('company') ?? 0;
+                                    if (!formKey.currentState!.validate()) return;
+
+                                    if (isEditing) {
+                                      final newHours = CompanyOpeningHoursModel.fromJson({
+                                        'id': existingHours.id,
+                                        'weekday': singleWeekday,
+                                        'company_id': company,
+                                        'opens_at': isClosed ? null : _formatTimeOfDay(opensAt),
+                                        'closes_at': isClosed ? null : _formatTimeOfDay(closesAt),
+                                        'is_closed': isClosed,
+                                      });
+                                      await controller.update(newHours);
+                                    } else {
+                                      final batch = selectedWeekdays
+                                          .map((wd) => CompanyOpeningHoursModel.fromJson({
+                                                'weekday': wd,
+                                                'company_id': company,
+                                                'opens_at': isClosed ? null : _formatTimeOfDay(opensAt),
+                                                'closes_at': isClosed ? null : _formatTimeOfDay(closesAt),
+                                                'is_closed': isClosed,
+                                              }))
+                                          .toList();
+                                      await controller.createMany(batch);
+                                    }
+                                    if (context.mounted) Navigator.pop(context);
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -361,7 +494,6 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
                           'Excluir Horário',
                           style: TextStyle(
                             fontSize: 15,
-                            fontWeight: FontWeight.w700,
                             color: _DS.textPrimary,
                             letterSpacing: -0.3,
                           ),
@@ -460,8 +592,7 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
   // ─── Page Header ───────────────────────────────────────────────────────────
 
   Widget _buildPageHeader() {
-    return Container(
-      color: _DS.surface,
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: _DS.s6, vertical: _DS.s5),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -474,7 +605,6 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
                   'Horários de Funcionamento',
                   style: TextStyle(
                     fontSize: 20,
-                    fontWeight: FontWeight.w700,
                     color: _DS.textPrimary,
                     letterSpacing: -0.5,
                   ),
@@ -485,17 +615,26 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
                   style: TextStyle(
                     fontSize: 13,
                     color: _DS.textSecondary,
-                    height: 1.5,
+                    height: 1.4,
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(width: _DS.s4),
-          _SaasPrimaryButton(
-            label: 'Novo Horário',
-            icon: LucideIcons.plus,
+          FilledButton.icon(
             onPressed: () => _showAddEditDialog(),
+            icon: const Icon(LucideIcons.plus, size: 16),
+            label: const Text('Novo Horário'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _DS.accent,
+              foregroundColor: Colors.white,
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              textStyle: const TextStyle(
+                fontSize: 14,
+              ),
+            ),
           ),
         ],
       ),
@@ -545,7 +684,6 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
             'Nenhum horário cadastrado',
             style: TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w600,
               color: _DS.textPrimary,
               letterSpacing: -0.2,
             ),
@@ -635,7 +773,6 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
             'Erro ao carregar horários',
             style: TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w600,
               color: _DS.textPrimary,
               letterSpacing: -0.2,
             ),
@@ -715,7 +852,6 @@ class _HoursListItemState extends State<_HoursListItem> {
                     widget.abbreviation,
                     style: const TextStyle(
                       fontSize: 11,
-                      fontWeight: FontWeight.w700,
                       color: _DS.textSecondary,
                       letterSpacing: 0.5,
                     ),
@@ -732,7 +868,6 @@ class _HoursListItemState extends State<_HoursListItem> {
                       widget.weekdayName,
                       style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w600,
                         color: _DS.textPrimary,
                         letterSpacing: -0.2,
                       ),
@@ -751,7 +886,6 @@ class _HoursListItemState extends State<_HoursListItem> {
                                 '${widget.hours.opensAt?.substring(0, 5) ?? '--:--'}',
                                 style: const TextStyle(
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w500,
                                   color: _DS.textSecondary,
                                 ),
                               ),
@@ -763,7 +897,6 @@ class _HoursListItemState extends State<_HoursListItem> {
                                 '${widget.hours.closesAt?.substring(0, 5) ?? '--:--'}',
                                 style: const TextStyle(
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w500,
                                   color: _DS.textSecondary,
                                 ),
                               ),
@@ -813,7 +946,6 @@ class _DialogFieldLabel extends StatelessWidget {
           label,
           style: const TextStyle(
             fontSize: 12,
-            fontWeight: FontWeight.w600,
             color: _DS.textSecondary,
             letterSpacing: 0.2,
           ),
@@ -890,7 +1022,6 @@ class _ClosedToggleRow extends StatelessWidget {
                   'Fechado neste dia',
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
                     color: _DS.textPrimary,
                   ),
                 ),
@@ -939,7 +1070,6 @@ class _SaasDropdown<T> extends StatelessWidget {
         onChanged: onChanged,
         style: const TextStyle(
           fontSize: 14,
-          fontWeight: FontWeight.w500,
           color: _DS.textPrimary,
         ),
         decoration: const InputDecoration(
@@ -995,7 +1125,6 @@ class _TimePickerButtonState extends State<_TimePickerButton> {
                 '$hour:$minute',
                 style: const TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
                   color: _DS.textPrimary,
                   letterSpacing: 0.5,
                   fontFeatures: [FontFeature.tabularFigures()],
@@ -1042,7 +1171,6 @@ class _StatusBadge extends StatelessWidget {
             isOpen ? 'Aberto' : 'Fechado',
             style: TextStyle(
               fontSize: 11,
-              fontWeight: FontWeight.w600,
               color: isOpen ? const Color(0xFF15803D) : const Color(0xFFB91C1C),
               letterSpacing: 0.1,
             ),
@@ -1148,7 +1276,6 @@ class _SaasPrimaryButtonState extends State<_SaasPrimaryButton> {
                 widget.label,
                 style: const TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w600,
                   color: Colors.white,
                   letterSpacing: -0.1,
                 ),
@@ -1203,7 +1330,6 @@ class _SaasOutlinedButtonState extends State<_SaasOutlinedButton> {
                 widget.label,
                 style: const TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w600,
                   color: _DS.textPrimary,
                   letterSpacing: -0.1,
                 ),
@@ -1246,7 +1372,6 @@ class _SaasGhostButtonState extends State<_SaasGhostButton> {
             widget.label,
             style: TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w500,
               color: _hovered ? _DS.textPrimary : _DS.textSecondary,
               letterSpacing: -0.1,
             ),
@@ -1288,9 +1413,143 @@ class _SaasDangerButtonState extends State<_SaasDangerButton> {
             widget.label,
             style: const TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w600,
               color: Colors.white,
               letterSpacing: -0.1,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WeekdayChip extends StatefulWidget {
+  const _WeekdayChip({
+    required this.label,
+    required this.fullLabel,
+    required this.selected,
+    required this.disabled,
+    required this.onTap,
+  });
+  final String label;
+  final String fullLabel;
+  final bool selected;
+  final bool disabled;
+  final VoidCallback? onTap;
+
+  @override
+  State<_WeekdayChip> createState() => _WeekdayChipState();
+}
+
+class _WeekdayChipState extends State<_WeekdayChip> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = widget.selected;
+    final disabled = widget.disabled;
+    final Color bg;
+    final Color fg;
+    final Color border;
+    if (disabled) {
+      bg = const Color(0xFFF4F4F5);
+      fg = _DS.textTertiary;
+      border = _DS.border;
+    } else if (selected) {
+      bg = _DS.accent;
+      fg = Colors.white;
+      border = _DS.accent;
+    } else if (_hovered) {
+      bg = _DS.accentSubtle;
+      fg = _DS.textPrimary;
+      border = _DS.borderStrong;
+    } else {
+      bg = _DS.surface;
+      fg = _DS.textPrimary;
+      border = _DS.border;
+    }
+
+    return MouseRegion(
+      cursor: disabled ? SystemMouseCursors.forbidden : SystemMouseCursors.click,
+      onEnter: (_) {
+        if (!disabled) setState(() => _hovered = true);
+      },
+      onExit: (_) {
+        if (!disabled) setState(() => _hovered = false);
+      },
+      child: Tooltip(
+        message: disabled ? '${widget.fullLabel} já configurado' : widget.fullLabel,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            padding: const EdgeInsets.symmetric(horizontal: _DS.s3 + 2, vertical: 9),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(_DS.radiusSm),
+              border: Border.all(color: border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (selected) ...[
+                  const Icon(LucideIcons.check, size: 12, color: Colors.white),
+                  const SizedBox(width: 5),
+                ] else if (disabled) ...[
+                  const Icon(LucideIcons.lock, size: 11, color: _DS.textTertiary),
+                  const SizedBox(width: 5),
+                ],
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: fg,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PresetChip extends StatefulWidget {
+  const _PresetChip({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  State<_PresetChip> createState() => _PresetChipState();
+}
+
+class _PresetChipState extends State<_PresetChip> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 130),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          decoration: BoxDecoration(
+            color: _hovered ? _DS.accentSubtle : Colors.transparent,
+            borderRadius: BorderRadius.circular(_DS.radiusSm),
+            border: Border.all(color: _hovered ? _DS.borderStrong : _DS.border),
+          ),
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              fontSize: 11,
+              color: _hovered ? _DS.textPrimary : _DS.textSecondary,
+              letterSpacing: -0.05,
             ),
           ),
         ),

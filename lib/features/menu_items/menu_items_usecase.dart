@@ -1,4 +1,5 @@
-// Arquivo gerado automaticamente
+import 'dart:typed_data';
+
 import 'package:portal_assoc/features/menu_items/menu_items_model.dart';
 
 import '../../core/services/response_model.dart';
@@ -27,5 +28,9 @@ class MenuItemsUseCase {
 
   Future<ResponseModel> delete(int id) async {
     return await repository.delete(id);
+  }
+
+  Future<ResponseModel> uploadImage(Uint8List bytes, String filename, String mimeType) async {
+    return await repository.uploadImage(bytes, filename, mimeType);
   }
 }

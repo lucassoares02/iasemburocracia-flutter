@@ -312,7 +312,6 @@ class _RegisterPageState extends State<RegisterPage> with SingleTickerProviderSt
                                                             "Empresa",
                                                             style: AppTextStyles.title.copyWith(
                                                               fontSize: 20,
-                                                              fontWeight: FontWeight.bold,
                                                               color: colorScheme.onSurface,
                                                             ),
                                                             textAlign: TextAlign.center,
@@ -391,7 +390,6 @@ class _RegisterPageState extends State<RegisterPage> with SingleTickerProviderSt
                                                         "Cadastre-se",
                                                         style: AppTextStyles.title.copyWith(
                                                           fontSize: 28,
-                                                          fontWeight: FontWeight.bold,
                                                           letterSpacing: -0.5,
                                                           color: colorScheme.onSurface,
                                                         ),

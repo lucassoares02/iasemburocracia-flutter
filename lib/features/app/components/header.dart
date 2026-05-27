@@ -88,12 +88,20 @@ class HeaderState extends State<Header> {
                                 context.go("/business-settings");
                               }),
                           const Spacing(),
-                          ButtonHeader(text: "Pedidos", enabled: false, onPressed: () {}),
+                          ButtonHeader(
+                              text: "Pedidos",
+                              onPressed: () {
+                                context.go("/orders");
+                              }),
                         ],
                       ),
                       Row(
                         children: [
-                          ButtonHeader(text: "Clientes", enabled: false, onPressed: () {}),
+                          ButtonHeader(
+                              text: "Clientes",
+                              onPressed: () {
+                                context.go("/customers");
+                              }),
                         ],
                       ),
                     ],

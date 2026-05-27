@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:portal_assoc/core/utils/spacing.dart';
 import 'package:portal_assoc/features/additional_info/additional_info_model.dart';
-import 'package:portal_assoc/shared/widgets/special_button.dart';
 import '../../core/state/app_state.dart';
 import 'additional_info_controller.dart';
 import 'additional_info_repository.dart';
@@ -239,24 +237,32 @@ class _PageHeader extends StatelessWidget {
               Text(
                 'Informações adicionais',
                 style: text.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
                   color: colors.onSurface,
                   letterSpacing: -0.3,
+                  fontSize: 20,
                 ),
               ),
               const SizedBox(height: _DS.space4),
               Text(
                 'Gerencie e organize as informações do perfil',
-                style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant, fontSize: 13, height: 1.4),
               ),
             ],
           ),
         ),
-        SpecialButton(
-          icon: Icons.add_rounded,
-          color: colors.primary,
-          label: 'Adicionar',
-          onPressButton: onAdd,
+        FilledButton.icon(
+          onPressed: onAdd,
+          icon: const Icon(Icons.add_rounded, size: 16),
+          label: const Text('Adicionar'),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF1C1C1E),
+            foregroundColor: Colors.white,
+            shape: const StadiumBorder(),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            textStyle: const TextStyle(
+              fontSize: 14,
+            ),
+          ),
         ),
       ],
     );
@@ -432,7 +438,6 @@ class _InfoCardState extends State<_InfoCard> {
                             child: Text(
                               widget.item.title ?? 'Sem título',
                               style: text.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
                                 color: colors.onSurface,
                               ),
                               maxLines: 1,
@@ -529,7 +534,6 @@ class _VisibilityBadge extends StatelessWidget {
           Text(
             isPrivate ? 'Privado' : 'Público',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
                   color: fgColor,
                   fontSize: 10,
                 ),
@@ -563,7 +567,6 @@ class _KeywordChips extends StatelessWidget {
                   tag,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: color,
-                        fontWeight: FontWeight.w600,
                         fontSize: 10,
                       ),
                 ),
@@ -610,7 +613,10 @@ class _CardMenu extends StatelessWidget {
           children: [
             Icon(icon, size: 16, color: color),
             const SizedBox(width: _DS.space8),
-            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+            Text(label,
+                style: TextStyle(
+                  fontSize: 13,
+                )),
           ],
         ),
       );
@@ -639,7 +645,7 @@ class _DeleteDialog extends StatelessWidget {
         ),
         child: Icon(Icons.delete_outline_rounded, color: colors.onErrorContainer, size: 26),
       ),
-      title: Text('Excluir informação', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+      title: Text('Excluir informação', style: text.titleMedium?.copyWith()),
       content: Text(
         'Tem certeza que deseja excluir "$itemTitle"? Esta ação não pode ser desfeita.',
         style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
@@ -760,7 +766,7 @@ class _InfoDialogState extends State<_InfoDialog> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(title, style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    child: Text(title, style: text.titleMedium?.copyWith()),
                   ),
                   IconButton(
                     onPressed: () => Navigator.pop(context),
@@ -826,7 +832,6 @@ class _InfoDialogState extends State<_InfoDialog> {
                     Text(
                       'Visibilidade',
                       style: text.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
                         color: colors.onSurfaceVariant,
                       ),
                     ),
@@ -1015,7 +1020,7 @@ class _EmptyState extends StatelessWidget {
               child: Icon(icon, size: 32, color: iconColor),
             ),
             const SizedBox(height: _DS.space16),
-            Text(title, style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
+            Text(title, style: text.bodyLarge?.copyWith()),
             const SizedBox(height: _DS.space4),
             Text(
               subtitle,

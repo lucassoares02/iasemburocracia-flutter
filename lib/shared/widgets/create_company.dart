@@ -62,7 +62,6 @@ class _CreateCompanyState extends State<CreateCompany> {
               "Empresa",
               style: AppTextStyles.title.copyWith(
                 fontSize: 20,
-                fontWeight: FontWeight.bold,
                 color: colorScheme.onSurface,
               ),
               textAlign: TextAlign.center,

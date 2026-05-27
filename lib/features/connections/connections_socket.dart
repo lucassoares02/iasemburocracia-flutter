@@ -9,16 +9,9 @@ class ConnectionsSocket {
     ws.connect(instance);
 
     ws.socket.on('connection.update', (payload) {
-      print("🔄 Evento recebido: $payload");
-
-      // O log mostrou que o 'state' está dentro de 'data'
       if (payload != null && payload['data'] != null) {
         final state = payload['data']['state'];
-
-        print("📡 Estado atual: $state");
-
         if (state == 'open') {
-          print("✅ Conexão aberta detectada!");
           onConnectionSuccess?.call('open');
         }
       }

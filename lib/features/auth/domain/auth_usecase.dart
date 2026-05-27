@@ -11,6 +11,10 @@ class AuthUseCase {
     return repository.login(email, password);
   }
 
+  Future<UserModel> loginWithGoogle(String idToken) {
+    return repository.loginWithGoogle(idToken);
+  }
+
   Future<ResponseModel> getCompanies() {
     return repository.getCompanies();
   }

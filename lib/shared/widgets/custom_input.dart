@@ -113,7 +113,6 @@ class CustomInputState extends State<CustomInput> {
                 Text(
                   widget.title!,
                   style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
                     color: _isFocused
                         ? colorScheme.primary
                         : _hasError
@@ -176,7 +175,6 @@ class CustomInputState extends State<CustomInput> {
                     : _isFocused
                         ? colorScheme.primary
                         : colorScheme.onSurface.withValues(alpha: 0.6),
-                fontWeight: FontWeight.w600,
               ),
               hintText: widget.hint,
               hintStyle: TextStyle(
@@ -190,7 +188,6 @@ class CustomInputState extends State<CustomInput> {
               errorStyle: TextStyle(
                 color: colorScheme.error,
                 fontSize: 12,
-                fontWeight: FontWeight.w500,
               ),
               prefixIcon: widget.prefixIcon ??
                   (widget.icon != null && widget.floatingLabel

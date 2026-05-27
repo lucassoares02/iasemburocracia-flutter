@@ -29,6 +29,19 @@ class MenuCategoriesRepository {
     }
   }
 
+  Future<ResponseModel> findByCompany(int companyId) async {
+    try {
+      ResponseModel response =
+          await httpService.get("menu_categories/company/$companyId");
+      List list = response.data as List;
+      final item = list.map((e) => MenuCategoriesModel.fromJson(e)).toList();
+      response.data = item;
+      return response;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<ResponseModel> create(MenuCategoriesModel data) async {
     try {
       ResponseModel response = await httpService.post("menu_categories", data.toJson());

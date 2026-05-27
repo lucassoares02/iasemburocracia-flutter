@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:portal_assoc/core/config/app_theme.dart';
 import 'package:portal_assoc/core/providers/auth_provider.dart';
 import 'package:portal_assoc/core/providers/locale_provder.dart';
+import 'package:portal_assoc/core/providers/onboarding_provider.dart';
 import 'package:portal_assoc/core/providers/theme_provider.dart';
 import 'package:portal_assoc/core/state/app_state.dart';
 import 'package:portal_assoc/features/auth/data/auth_repository.dart';
 import 'package:portal_assoc/features/auth/presentation/auth_controller.dart';
+import 'package:go_router/go_router.dart';
 import 'package:portal_assoc/l10n/app_localizations.dart';
 import 'package:portal_assoc/router/app_router.dart';
 import 'package:provider/provider.dart';
@@ -20,7 +22,17 @@ void main() {
       ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ChangeNotifierProvider(create: (_) => LocaleProvider()),
       ChangeNotifierProvider(create: (_) => AuthProvider()),
-      Provider<AuthController>(create: (_) => AuthController(StartState(), AuthRepository())),
+      ChangeNotifierProxyProvider<AuthProvider, OnboardingProvider>(
+        create: (_) => OnboardingProvider(),
+        update: (_, auth, prev) {
+          final provider = prev ?? OnboardingProvider();
+          provider.setLoggedIn(auth.isLoggedIn);
+          return provider;
+        },
+      ),
+      ChangeNotifierProvider<AuthController>(
+        create: (_) => AuthController(StartState(), AuthRepository()),
+      ),
     ],
     child: const ToastificationWrapper(
       child: MyApp(),
@@ -28,14 +40,26 @@ void main() {
   ));
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  GoRouter? _router;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _router ??= appRouter(context.read<AuthProvider>());
+  }
 
   @override
   Widget build(BuildContext context) {
     final locale = context.watch<LocaleProvider>().locale;
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    final authProvider = Provider.of<AuthProvider>(context);
+    final themeProvider = context.watch<ThemeProvider>();
 
     return MaterialApp.router(
       title: 'iasemburocracia',
@@ -54,7 +78,7 @@ class MyApp extends StatelessWidget {
         Locale('en', ''), // English
       ],
       locale: locale,
-      routerConfig: appRouter(authProvider),
+      routerConfig: _router!,
     );
   }
 }

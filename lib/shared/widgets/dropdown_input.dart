@@ -100,7 +100,7 @@ class DropdownInputState extends State<DropdownInput> {
               const SizedBox(width: 8),
               Text(
                 "Criar empresa",
-                style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary),
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
               ),
             ],
           ),
@@ -122,7 +122,7 @@ class DropdownInputState extends State<DropdownInput> {
             children: [
               Text(
                 widget.title ?? "",
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(),
               ),
             ],
           ),

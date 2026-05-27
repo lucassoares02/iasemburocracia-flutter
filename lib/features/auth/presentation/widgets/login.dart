@@ -3,6 +3,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:portal_assoc/core/providers/auth_provider.dart';
 import 'package:portal_assoc/features/auth/data/user_model.dart';
 import 'package:portal_assoc/features/auth/presentation/auth_controller.dart';
+import 'package:portal_assoc/features/auth/presentation/widgets/google_login_button.dart';
 import 'package:portal_assoc/shared/extensions/context_screen_extension.dart';
 import 'package:portal_assoc/shared/widgets/custom_button.dart';
 import 'package:portal_assoc/shared/widgets/custom_input.dart';
@@ -12,7 +13,6 @@ import 'package:portal_assoc/l10n/l10n_extension.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginWidget extends StatefulWidget {
   const LoginWidget({
@@ -36,6 +36,43 @@ class _LoginWidgetState extends State<LoginWidget> with SingleTickerProviderStat
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+
+  void _onLoginStateChanged() {
+    final state = widget.authController.stateLogin.value;
+    if (state is SuccessState<UserModel>) {
+      if (!mounted) return;
+      final authProvider = context.read<AuthProvider>();
+      final user = widget.authController.user;
+      if (user == null) return;
+      authProvider.setAccessToken(user);
+      if (!mounted) return;
+      context.go("/home");
+    }
+  }
+
+  void _onGoogleLoginStateChanged() {
+    final state = widget.authController.stateGoogleLogin.value;
+    if (state is SuccessState<UserModel>) {
+      if (!mounted) return;
+      final authProvider = context.read<AuthProvider>();
+      final user = widget.authController.user;
+      if (user == null) return;
+      authProvider.setAccessToken(user);
+      if (!mounted) return;
+      context.go("/home");
+      return;
+    }
+    if (state is ErrorState) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(state.message),
+          backgroundColor: const Color(0xFFE53935),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -66,19 +103,14 @@ class _LoginWidgetState extends State<LoginWidget> with SingleTickerProviderStat
 
     _animationController.forward();
 
-    widget.authController.stateLogin.addListener(() {
-      final state = widget.authController.stateLogin.value;
-
-      if (state is SuccessState<UserModel>) {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        authProvider.setAccessToken(widget.authController.user!);
-        context.go("/home");
-      }
-    });
+    widget.authController.stateLogin.addListener(_onLoginStateChanged);
+    widget.authController.stateGoogleLogin.addListener(_onGoogleLoginStateChanged);
   }
 
   @override
   void dispose() {
+    widget.authController.stateLogin.removeListener(_onLoginStateChanged);
+    widget.authController.stateGoogleLogin.removeListener(_onGoogleLoginStateChanged);
     _animationController.dispose();
     _email.dispose();
     _password.dispose();
@@ -256,7 +288,6 @@ class _LoginWidgetState extends State<LoginWidget> with SingleTickerProviderStat
                         "${context.l10n.hello}, ${context.l10n.welcome}",
                         style: AppTextStyles.title.copyWith(
                           fontSize: 28,
-                          fontWeight: FontWeight.bold,
                           letterSpacing: -0.5,
                           color: colorScheme.onSurface,
                         ),
@@ -357,7 +388,6 @@ class _LoginWidgetState extends State<LoginWidget> with SingleTickerProviderStat
                           child: Text(
                             context.l10n.forgot_password,
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
                               color: colorScheme.primary,
                             ),
                           ),
@@ -387,21 +417,9 @@ class _LoginWidgetState extends State<LoginWidget> with SingleTickerProviderStat
                         },
                       ),
 
-                      const SizedBox(height: 24),
-                      TextButton(
-                        onPressed: () {
-                          context.go('/register');
-                        },
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text("Não possui cadastro?"),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
 
-                      // Divider
+                      // Divider "ou continue com"
                       Row(
                         children: [
                           Expanded(
@@ -412,7 +430,7 @@ class _LoginWidgetState extends State<LoginWidget> with SingleTickerProviderStat
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: Text(
-                              "Acesso seguro",
+                              "ou continue com",
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: colorScheme.onSurface.withValues(alpha: 0.5),
                                 fontSize: 12,
@@ -428,6 +446,33 @@ class _LoginWidgetState extends State<LoginWidget> with SingleTickerProviderStat
                       ),
 
                       const SizedBox(height: 16),
+
+                      // Google login button
+                      ValueListenableBuilder(
+                        valueListenable: widget.authController.stateGoogleLogin,
+                        builder: (context, stateGoogle, child) {
+                          return GoogleLoginButton(
+                            isLoading: stateGoogle is LoadingState,
+                            onPressed: () => widget.authController.loginWithGoogle(),
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      TextButton(
+                        onPressed: () {
+                          context.go('/register');
+                        },
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text("Não possui cadastro?"),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
 
                       // Footer info
                       Center(

@@ -1,55 +1,41 @@
-import '../../core/services/response_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../core/services/http_service.dart';
+import '../../core/services/response_model.dart';
 import 'home_model.dart';
 
 class HomeRepository {
   final httpService = HttpService();
 
-  Future<ResponseModel> find(int id) async {
-    try {
-      ResponseModel response = await httpService.get("home/$id");
-      List list = response.data as List;
-      final item = list.map((e) => HomeModel.fromJson(e)).toList();
-      response.data = item;
-      return response;
-    } catch (e) {
-      rethrow;
-    }
+  Future<int> _companyId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('company') ?? 0;
   }
 
-  Future<ResponseModel> findAll() async {
-    try {
-      ResponseModel response = await httpService.get("companies");
-      List list = response.data as List;
-      final item = list.map((e) => HomeModel.fromJson(e)).toList();
-      response.data = item;
-      return response;
-    } catch (e) {
-      rethrow;
+  Future<ResponseModel> getDashboard() async {
+    var id = await _companyId();
+    // Após login, a company pode ser persistida alguns instantes depois.
+    // Faz pequenas tentativas para evitar carregar dashboard zerado.
+    if (id <= 0) {
+      for (var i = 0; i < 12; i++) {
+        await Future.delayed(const Duration(milliseconds: 150));
+        id = await _companyId();
+        if (id > 0) break;
+      }
     }
-  }
-
-  Future<ResponseModel> create(HomeModel data) async {
-    try {
-      ResponseModel response = await httpService.post("home", data.toJson());
-      return response;
-    } catch (e) {
-      rethrow;
+    if (id <= 0) {
+      return ResponseModel(
+        success: true,
+        message: 'Company not selected yet',
+        data: DashboardModel.fromJson({}),
+      );
     }
-  }
-
-  Future<ResponseModel> update(HomeModel data) async {
     try {
-      ResponseModel response = await httpService.patch("home", data.toJson());
-      return response;
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  Future<ResponseModel> delete(int id) async {
-    try {
-      ResponseModel response = await httpService.delete("home/$id");
+      final response = await httpService.get("dashboard/$id");
+      if (response.success && response.data is Map<String, dynamic>) {
+        response.data =
+            DashboardModel.fromJson(response.data as Map<String, dynamic>);
+      }
       return response;
     } catch (e) {
       rethrow;

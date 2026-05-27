@@ -15,8 +15,14 @@ class AuthPage extends StatefulWidget {
 }
 
 class _AuthPageState extends State<AuthPage> {
-  late final AuthController authController = Provider.of<AuthController>(context, listen: false);
+  late AuthController authController;
   dynamic authState;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    authController = context.read<AuthController>();
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -13,6 +13,8 @@ class CompaniesController extends BaseController<CompaniesModel> {
 
   ValueNotifier<StateApp> stateFind = ValueNotifier(StartState());
   ValueNotifier<StateApp> stateFindBusinessAddress = ValueNotifier(StartState());
+  ValueNotifier<StateApp> stateAddressAutocomplete = ValueNotifier(StartState());
+  ValueNotifier<StateApp> stateAddressDetails = ValueNotifier(StartState());
   ValueNotifier<StateApp> stateFindAll = ValueNotifier(StartState());
   ValueNotifier<StateApp> stateCreate = ValueNotifier(StartState());
   ValueNotifier<StateApp> stateUpdate = ValueNotifier(StartState());
@@ -29,6 +31,10 @@ class CompaniesController extends BaseController<CompaniesModel> {
         });
       });
   Future<void> findBusinessAddress() async => runWithState(() => companiesUsecase.findBusinessAddress(), stateFindBusinessAddress);
+  Future<void> addressAutocomplete(String input, {String? sessionToken}) =>
+      runWithState(() => companiesUsecase.addressAutocomplete(input, sessionToken: sessionToken), stateAddressAutocomplete);
+  Future<void> addressDetails(String placeId, {String? sessionToken}) =>
+      runWithState(() => companiesUsecase.addressDetails(placeId, sessionToken: sessionToken), stateAddressDetails);
   Future<void> findAll() async => runWithState(() => companiesUsecase.findAll(), stateFindAll);
   Future<void> create(CompaniesModel data) async => runWithState(() => companiesUsecase.create(data), stateCreate);
   Future<void> update(CompaniesModel data) async => runWithState(
