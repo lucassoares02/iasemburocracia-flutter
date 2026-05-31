@@ -44,7 +44,7 @@ class CompanyOpeningHoursRepository {
 
   Future<ResponseModel> update(CompanyOpeningHoursModel data) async {
     try {
-      ResponseModel response = await httpService.patch("company_opening_hours", data.toJson());
+      ResponseModel response = await httpService.patch("company_opening_hours/${data.id}", data.toJson());
       return response;
     } catch (e) {
       rethrow;
