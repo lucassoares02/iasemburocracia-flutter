@@ -37,27 +37,33 @@ class _LoginWidgetState extends State<LoginWidget> with SingleTickerProviderStat
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  void _onLoginStateChanged() {
+  Future<void> _finalizeLogin(AuthProvider authProvider, UserModel user) async {
+    await authProvider.setAccessToken(user);
+    await widget.authController.findCompanies();
+    await authProvider.loadCompany();
+  }
+
+  void _onLoginStateChanged() async {
     final state = widget.authController.stateLogin.value;
     if (state is SuccessState<UserModel>) {
       if (!mounted) return;
       final authProvider = context.read<AuthProvider>();
       final user = widget.authController.user;
       if (user == null) return;
-      authProvider.setAccessToken(user);
+      await _finalizeLogin(authProvider, user);
       if (!mounted) return;
       context.go("/home");
     }
   }
 
-  void _onGoogleLoginStateChanged() {
+  void _onGoogleLoginStateChanged() async {
     final state = widget.authController.stateGoogleLogin.value;
     if (state is SuccessState<UserModel>) {
       if (!mounted) return;
       final authProvider = context.read<AuthProvider>();
       final user = widget.authController.user;
       if (user == null) return;
-      authProvider.setAccessToken(user);
+      await _finalizeLogin(authProvider, user);
       if (!mounted) return;
       context.go("/home");
       return;

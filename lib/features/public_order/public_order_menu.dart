@@ -3842,10 +3842,10 @@ class _ProductDetailSheetState extends State<_ProductDetailSheet> {
           ),
           Flexible(
             child: SingleChildScrollView(
-              padding: EdgeInsets.only(
+              padding: const EdgeInsets.only(
                 left: 0,
                 right: 0,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                bottom: 12,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3975,93 +3975,122 @@ class _ProductDetailSheetState extends State<_ProductDetailSheet> {
                       ],
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _DS.surface,
-                            borderRadius: BorderRadius.circular(99),
-                            border: Border.all(color: _DS.hairline),
-                          ),
-                          child: Row(
-                            children: [
-                              _qtyBtn(
-                                icon: Icons.remove,
-                                onTap: () {
-                                  if (_qty > 1) setState(() => _qty--);
-                                },
-                                enabled: _qty > 1,
-                              ),
-                              SizedBox(
-                                width: 36,
-                                child: Center(
-                                  child: AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 150),
-                                    child: Text(
-                                      '$_qty',
-                                      key: ValueKey(_qty),
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        color: _DS.ink,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              _qtyBtn(
-                                icon: Icons.add,
-                                onTap: () => setState(() => _qty++),
-                                brand: brand,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: SizedBox(
-                            height: 52,
-                            child: FilledButton(
-                              onPressed: _loadingOptions
-                                  ? null
-                                  : () {
-                                      final err = _validateRequired();
-                                      if (err != null) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text(err), backgroundColor: _DS.danger),
-                                        );
-                                        return;
-                                      }
-                                      widget.onAdd(
-                                        _qty,
-                                        _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-                                        _buildSelectionSnapshot(),
-                                      );
-                                      Navigator.pop(context);
-                                    },
-                              style: FilledButton.styleFrom(
-                                backgroundColor: brand,
-                                shape: const StadiumBorder(),
-                              ),
-                              child: Text(
-                                'Adicionar · ${_currFmt.format(((item.price ?? 0) + _extraPerUnit) * _qty)}',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
           ),
+          // ── Rodapé fixo: stepper de quantidade + botão Adicionar ──────────
+          _buildStickyAddBar(brand),
         ],
+      ),
+    );
+  }
+
+  /// Rodapé fixo do sheet — não scrolla com o conteúdo. Garante que o botão
+  /// "Adicionar" esteja sempre visível, independentemente da quantidade de
+  /// adicionais que o produto possua.
+  Widget _buildStickyAddBar(Color brand) {
+    final item = widget.item;
+    final hasBlockingError = _loadingOptions;
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        MediaQuery.of(context).viewInsets.bottom + 14,
+      ),
+      decoration: const BoxDecoration(
+        color: _DS.canvas,
+        border: Border(top: BorderSide(color: _DS.hairlineSoft)),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 16,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              decoration: BoxDecoration(
+                color: _DS.surface,
+                borderRadius: BorderRadius.circular(99),
+                border: Border.all(color: _DS.hairline),
+              ),
+              child: Row(
+                children: [
+                  _qtyBtn(
+                    icon: Icons.remove,
+                    onTap: () {
+                      if (_qty > 1) setState(() => _qty--);
+                    },
+                    enabled: _qty > 1,
+                  ),
+                  SizedBox(
+                    width: 36,
+                    child: Center(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 150),
+                        child: Text(
+                          '$_qty',
+                          key: ValueKey(_qty),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: _DS.ink,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  _qtyBtn(
+                    icon: Icons.add,
+                    onTap: () => setState(() => _qty++),
+                    brand: brand,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 52,
+                child: FilledButton(
+                  onPressed: hasBlockingError
+                      ? null
+                      : () {
+                          final err = _validateRequired();
+                          if (err != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(err), backgroundColor: _DS.danger),
+                            );
+                            return;
+                          }
+                          widget.onAdd(
+                            _qty,
+                            _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+                            _buildSelectionSnapshot(),
+                          );
+                          Navigator.pop(context);
+                        },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: brand,
+                    shape: const StadiumBorder(),
+                  ),
+                  child: Text(
+                    'Adicionar · ${_currFmt.format(((item.price ?? 0) + _extraPerUnit) * _qty)}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4978,7 +5007,7 @@ class _ModernCategoryTabsBarState extends State<_ModernCategoryTabsBar> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 56,
+      height: 60,
       color: _DSx.pageBg,
       child: ListView.separated(
         controller: _ctrl,
@@ -5048,12 +5077,11 @@ class _CategoryPillButtonState extends State<_CategoryPillButton> {
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOut,
               style: _DSx.text(
-                size: 13,
-                weight: selected ? FontWeight.w700 : FontWeight.w500,
+                size: 15,
+                weight: FontWeight.bold,
                 color: fg,
-                letterSpacing: 0.1,
               ),
-              child: Text(widget.label),
+              child: Text(widget.label, style: const TextStyle(fontSize: 15)),
             ),
           ),
         ),

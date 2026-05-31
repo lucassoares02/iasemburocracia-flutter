@@ -81,6 +81,17 @@ class ConnectionsController extends BaseController<ConnectionsModel> {
     }
   }
 
+  /// Atualiza o workflow do n8n vinculado à conexão (delete + recria).
+  /// Retorna `true` em sucesso, `false` em falha.
+  Future<bool> updateWorkflow(int id) async {
+    try {
+      final ResponseModel res = await connectionsUsecase.updateWorkflow(id);
+      return res.success;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Fast DB-based status check — used for polling after QR scan.
   /// Updated by Evolution's CONNECTION_UPDATE webhook via our backend.
   Future<bool> isConnected(String instance) async {

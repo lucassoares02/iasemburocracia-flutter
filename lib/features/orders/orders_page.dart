@@ -196,8 +196,7 @@ class _OrdersPageState extends State<OrdersPage> with SingleTickerProviderStateM
                     viewMode: _viewMode,
                     onViewModeChange: (m) => setState(() => _viewMode = m),
                   ),
-                  _SummaryRow(ctrl: _ctrl),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   if (_viewMode == _ViewMode.list) ...[
                     _TabBar(tabs: _tabs),
                     const SizedBox(height: 16),

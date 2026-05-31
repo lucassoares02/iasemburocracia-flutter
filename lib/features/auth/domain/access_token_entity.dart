@@ -5,6 +5,7 @@ class UserEntity {
   final int type;
   final String accessToken;
   final bool active;
+  final int company;
 
   UserEntity({
     required this.id,
@@ -13,5 +14,6 @@ class UserEntity {
     required this.type,
     required this.accessToken,
     required this.active,
+    required this.company,
   });
 }

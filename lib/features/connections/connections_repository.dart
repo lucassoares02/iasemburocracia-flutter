@@ -83,4 +83,12 @@ class ConnectionsRepository {
       rethrow;
     }
   }
+
+  Future<ResponseModel> updateWorkflow(int id) async {
+    try {
+      return await httpService.post("connections/$id/update-workflow", {});
+    } catch (e) {
+      rethrow;
+    }
+  }
 }

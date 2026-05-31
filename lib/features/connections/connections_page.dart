@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:toastification/toastification.dart';
 import 'package:portal_assoc/features/companies/companies_controller.dart';
 import 'package:portal_assoc/features/companies/companies_repository.dart';
 import 'package:portal_assoc/features/companies/companies_usecase.dart';
@@ -199,6 +200,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
                                     _openQrDialog(cs.data as CompaniesModel, connections[i].instanceName!);
                                   }
                                 },
+                                onUpdateWorkflow: () => _handleUpdateWorkflow(connections[i]),
                               ),
                             ),
                           ),
@@ -291,6 +293,57 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
         existingInstanceNames: existing,
       ),
     );
+  }
+
+  Future<void> _handleUpdateWorkflow(ConnectionsModel conn) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => _UpdateWorkflowConfirmDialog(instanceName: conn.instanceName ?? ''),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // Progress dialog + backend call em paralelo. Os estágios visuais avançam
+    // sozinhos enquanto o n8n executa deactivate → delete → recreate → activate.
+    final progress = ValueNotifier<int>(0);
+    final stagesTimer = Timer.periodic(const Duration(milliseconds: 850), (t) {
+      if (progress.value < 3) progress.value = progress.value + 1;
+    });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _UpdateWorkflowProgressDialog(progress: progress),
+    );
+
+    final ok = await _ctrl.updateWorkflow(conn.id!);
+    stagesTimer.cancel();
+    if (!mounted) return;
+
+    progress.value = 4; // marca todos como concluídos
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+
+    Navigator.of(context, rootNavigator: true).pop(); // fecha progresso
+
+    if (ok) {
+      toastification.show(
+        type: ToastificationType.success,
+        style: ToastificationStyle.flat,
+        title: const Text('Fluxo atualizado com sucesso 🚀'),
+        description: const Text('O workflow foi recriado e está ativo.'),
+        autoCloseDuration: const Duration(seconds: 3),
+        animationDuration: const Duration(milliseconds: 300),
+      );
+    } else {
+      toastification.show(
+        type: ToastificationType.error,
+        style: ToastificationStyle.flat,
+        title: const Text('Não foi possível atualizar o fluxo'),
+        description: const Text('Tente novamente em instantes.'),
+        autoCloseDuration: const Duration(seconds: 4),
+        animationDuration: const Duration(milliseconds: 300),
+      );
+    }
   }
 
   Widget _buildLoadingContent() {
@@ -538,12 +591,14 @@ class _ConnectionCard extends StatefulWidget {
     required this.controller,
     required this.onDeleted,
     required this.onReconnect,
+    required this.onUpdateWorkflow,
   });
 
   final ConnectionsModel connection;
   final ConnectionsController controller;
   final VoidCallback onDeleted;
   final VoidCallback onReconnect;
+  final VoidCallback onUpdateWorkflow;
 
   @override
   State<_ConnectionCard> createState() => _ConnectionCardState();
@@ -662,6 +717,7 @@ class _ConnectionCardState extends State<_ConnectionCard> {
                   onTest: _handleTest,
                   onReconnect: widget.onReconnect,
                   onDelete: _handleDelete,
+                  onUpdateWorkflow: widget.onUpdateWorkflow,
                 ),
               ],
             ),
@@ -819,6 +875,7 @@ class _ActionRow extends StatelessWidget {
     required this.onTest,
     required this.onReconnect,
     required this.onDelete,
+    required this.onUpdateWorkflow,
   });
 
   final bool testing;
@@ -827,6 +884,7 @@ class _ActionRow extends StatelessWidget {
   final VoidCallback onTest;
   final VoidCallback onReconnect;
   final VoidCallback onDelete;
+  final VoidCallback onUpdateWorkflow;
 
   @override
   Widget build(BuildContext context) {
@@ -884,6 +942,16 @@ class _ActionRow extends StatelessWidget {
           tooltip: 'Reconectar',
           color: _DS.slate,
           bgColor: _DS.surface,
+        ),
+        const SizedBox(width: _DS.s1),
+
+        // Atualizar fluxo
+        _SmallButton(
+          onPressed: onUpdateWorkflow,
+          icon: LucideIcons.workflow,
+          tooltip: 'Atualizar fluxo',
+          color: _DS.brandBlue,
+          bgColor: const Color(0xFFEEF2FF),
         ),
         const SizedBox(width: _DS.s1),
 
@@ -957,6 +1025,213 @@ class _SmallButtonState extends State<_SmallButton> {
                 : Icon(widget.icon, size: 15, color: widget.color),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ─── Update workflow — confirm dialog ─────────────────────────────────────────
+
+class _UpdateWorkflowConfirmDialog extends StatelessWidget {
+  const _UpdateWorkflowConfirmDialog({required this.instanceName});
+
+  final String instanceName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_DS.rXxl)),
+      backgroundColor: _DS.canvas,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(_DS.s6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEF2FF),
+                      borderRadius: BorderRadius.circular(_DS.rLg),
+                    ),
+                    child: const Icon(LucideIcons.workflow, size: 20, color: _DS.brandBlue),
+                  ),
+                  const SizedBox(width: _DS.s3),
+                  const Expanded(
+                    child: Text(
+                      'Atualizar fluxo do n8n',
+                      style: TextStyle(fontSize: 16, color: _DS.ink, letterSpacing: -0.2),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: _DS.s4),
+              Text(
+                'O workflow atual da conexão "$instanceName" será removido e '
+                'recriado a partir do template mais recente. As configurações '
+                'da empresa serão reaplicadas automaticamente.',
+                style: const TextStyle(fontSize: 13.5, color: _DS.steel, height: 1.5),
+              ),
+              const SizedBox(height: _DS.s5),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _DS.ink,
+                      side: const BorderSide(color: _DS.hairline),
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    ),
+                    child: const Text('Cancelar'),
+                  ),
+                  const SizedBox(width: _DS.s2),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    icon: const Icon(LucideIcons.workflow, size: 15),
+                    label: const Text('Atualizar fluxo'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _DS.ink,
+                      foregroundColor: Colors.white,
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Update workflow — progress dialog ────────────────────────────────────────
+
+class _UpdateWorkflowProgressDialog extends StatelessWidget {
+  const _UpdateWorkflowProgressDialog({required this.progress});
+
+  /// 0..4 — quantos estágios já concluídos.
+  final ValueNotifier<int> progress;
+
+  static const List<String> _labels = [
+    'Removendo workflow antigo',
+    'Recriando fluxo',
+    'Configurando automações',
+    'Finalizando',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_DS.rXxl)),
+      backgroundColor: _DS.canvas,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Padding(
+          padding: const EdgeInsets.all(_DS.s6),
+          child: ValueListenableBuilder<int>(
+            valueListenable: progress,
+            builder: (_, step, __) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          color: _DS.brandBlue,
+                        ),
+                      ),
+                      SizedBox(width: _DS.s3),
+                      Text(
+                        'Atualizando fluxo...',
+                        style: TextStyle(fontSize: 15, color: _DS.ink, letterSpacing: -0.2),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: _DS.s5),
+                  for (int i = 0; i < _labels.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: _DS.s3),
+                      child: Row(
+                        children: [
+                          _StageIcon(
+                            done: step > i,
+                            active: step == i,
+                          ),
+                          const SizedBox(width: _DS.s3),
+                          Expanded(
+                            child: Text(
+                              _labels[i],
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: step > i
+                                    ? _DS.successText
+                                    : (step == i ? _DS.ink : _DS.stone),
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StageIcon extends StatelessWidget {
+  const _StageIcon({required this.done, required this.active});
+  final bool done;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    if (done) {
+      return Container(
+        width: 22,
+        height: 22,
+        decoration: const BoxDecoration(
+          color: _DS.successSubtle,
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(LucideIcons.check, size: 13, color: _DS.successText),
+      );
+    }
+    if (active) {
+      return const SizedBox(
+        width: 22,
+        height: 22,
+        child: Padding(
+          padding: EdgeInsets.all(3),
+          child: CircularProgressIndicator(strokeWidth: 2, color: _DS.brandBlue),
+        ),
+      );
+    }
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: _DS.surface,
+        shape: BoxShape.circle,
+        border: Border.all(color: _DS.hairline),
       ),
     );
   }

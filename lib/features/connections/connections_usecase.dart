@@ -16,4 +16,5 @@ class ConnectionsUseCase {
   Future<ResponseModel> testConnection(String instance) => repository.testConnection(instance);
   Future<ResponseModel> getQrCode(String instance) => repository.getQrCode(instance);
   Future<ResponseModel> getConnectionStatus(String instance) => repository.getConnectionStatus(instance);
+  Future<ResponseModel> updateWorkflow(int id) => repository.updateWorkflow(id);
 }

@@ -8,6 +8,7 @@ class UserModel extends UserEntity {
     required int type,
     required String accessToken,
     required bool active,
+    required int company,
   }) : super(
           id: id,
           name: name,
@@ -15,6 +16,7 @@ class UserModel extends UserEntity {
           type: type,
           accessToken: accessToken,
           active: active,
+          company: company,
         );
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
@@ -24,6 +26,7 @@ class UserModel extends UserEntity {
       type: json['user']['type'] ?? 0,
       email: json['user']['email'] ?? "",
       active: json['user']['active'] ?? false,
+      company: json['user']['company'] ?? 0,
     );
   }
   Map<String, dynamic> toJson() {
@@ -34,6 +37,7 @@ class UserModel extends UserEntity {
       'type': type,
       'accessToken': accessToken,
       'active': active,
+      'company': company,
     };
   }
 }

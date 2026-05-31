@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_multi_formatter/formatters/masked_input_formatter.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:portal_assoc/core/providers/auth_provider.dart';
 import 'package:portal_assoc/core/providers/onboarding_provider.dart';
 import 'package:portal_assoc/core/state/app_state.dart';
 import 'package:portal_assoc/features/companies/companies_controller.dart';
@@ -90,10 +91,12 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
   late Animation<double> _fadeAnim;
   BusinessAddressModel? _currentAccount;
 
+  AuthProvider? _authProvider;
+  bool _addressLoaded = false;
+
   @override
   void initState() {
     super.initState();
-    widget.controller.findBusinessAddress();
     _streetController = TextEditingController();
     _numberController = TextEditingController();
     _complementController = TextEditingController();
@@ -116,7 +119,31 @@ class _BusinessAddressState extends State<BusinessAddress> with SingleTickerProv
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<AuthProvider>();
+    if (_authProvider != provider) {
+      _authProvider?.removeListener(_onAuthChanged);
+      _authProvider = provider;
+      _authProvider!.addListener(_onAuthChanged);
+    }
+    _loadAddressIfReady();
+  }
+
+  void _onAuthChanged() => _loadAddressIfReady();
+
+  void _loadAddressIfReady() {
+    if (_addressLoaded || !mounted) return;
+    final companyId = _authProvider?.company ?? 0;
+    if (companyId > 0) {
+      _addressLoaded = true;
+      widget.controller.findBusinessAddress();
+    }
+  }
+
+  @override
   void dispose() {
+    _authProvider?.removeListener(_onAuthChanged);
     _removeOverlay();
     _streetController.dispose();
     _numberController.dispose();

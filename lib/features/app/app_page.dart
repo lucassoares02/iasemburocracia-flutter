@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:portal_assoc/core/config/app_spacing.dart';
+import 'package:portal_assoc/core/providers/auth_provider.dart';
 import 'package:portal_assoc/core/state/app_state.dart';
 import 'package:portal_assoc/features/app/components/header.dart';
 import 'package:portal_assoc/features/app/components/onboarding_company_dialog.dart';
@@ -33,8 +34,16 @@ class _AppPageState extends State<AppPage> {
     if (_authController == ctrl) return;
     _authController?.stateCompanies.removeListener(_checkCompanies);
     _authController = ctrl;
-    _authController?.findCompanies();
     _authController?.stateCompanies.addListener(_checkCompanies);
+    _syncCompanies();
+  }
+
+  Future<void> _syncCompanies() async {
+    final ctrl = _authController;
+    if (ctrl == null || !mounted) return;
+    await ctrl.findCompanies();
+    if (!mounted) return;
+    await context.read<AuthProvider>().loadCompany();
   }
 
   @override

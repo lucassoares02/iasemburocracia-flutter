@@ -1,6 +1,6 @@
 # portal_assoc
 
-A new Flutter project.
+Seu cardápio digital
 
 ## Getting Started
 
@@ -16,4 +16,5 @@ For help getting started with Flutter development, view the
 samples, guidance on mobile development, and a full API reference.
 
 ## Generate Intl
+
 flutter gen-l10n

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:portal_assoc/core/services/response_model.dart';
 import 'package:portal_assoc/core/state/app_state.dart';
@@ -11,6 +12,7 @@ import 'package:portal_assoc/features/customers/customers_usecase.dart';
 
 part 'customers_card.dart';
 part 'customers_details.dart';
+part 'customer_detail_page.dart';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 class _DS {
@@ -29,6 +31,8 @@ class _DS {
   static const dangerLight = Color(0xFFFFEBEA);
   static const rFull = 9999.0;
   static const rXl = 16.0;
+  static const rLg = 12.0;
+  static const rMd = 8.0;
   static const rXxxl = 28.0;
 
   static const _statusColors = {
@@ -116,13 +120,12 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   void _openDetail(CustomerModel c) {
-    Navigator.of(context).push(PageRouteBuilder(
-      pageBuilder: (_, __, ___) => _CustomerDetailPage(customerId: c.id!, ctrl: _ctrl),
-      transitionsBuilder: (_, anim, __, child) => SlideTransition(
-        position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-        child: child,
-      ),
-    ));
+    context.goNamed('customer-detail', pathParameters: {'id': '${c.id}'});
+  }
+
+  void _refresh() {
+    _ctrl.fetchAll(search: _searchCtrl.text.trim(), filter: _filter);
+    _ctrl.fetchSummary();
   }
 
   void _openCreate() {
@@ -133,28 +136,39 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
+  void _openEdit(CustomerModel c) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (_) => _CustomerFormModal(ctrl: _ctrl, customer: c),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
       color: _DS.surface,
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1400),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Header ──
-              ValueListenableBuilder<StateApp>(
-                valueListenable: _ctrl.stateFindAll,
-                builder: (_, state, __) {
-                  final count = state is SuccessState && state.data is List ? (state.data as List).length : null;
-                  return _PageHeader(count: count, onCreateTap: _openCreate);
-                },
-              ),
-              // ── KPI cards ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
-                child: ValueListenableBuilder<StateApp>(
+          constraints: const BoxConstraints(maxWidth: 1480),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ValueListenableBuilder<StateApp>(
+                  valueListenable: _ctrl.stateFindAll,
+                  builder: (_, state, __) {
+                    final count = state is SuccessState && state.data is List ? (state.data as List).length : null;
+                    return _PageHeader(
+                      count: count,
+                      onCreate: _openCreate,
+                      onRefresh: _refresh,
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                ValueListenableBuilder<StateApp>(
                   valueListenable: _ctrl.stateSummary,
                   builder: (_, state, __) {
                     final s = state is SuccessState && state.data is CustomerSummaryModel ? state.data as CustomerSummaryModel : null;
@@ -164,75 +178,28 @@ class _CustomersPageState extends State<CustomersPage> {
                     );
                   },
                 ),
-              ),
-              const SizedBox(height: 16),
-              // ── Filter bar ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
-                child: _FilterBar(
+                const SizedBox(height: 16),
+                _FilterBar(
                   searchCtrl: _searchCtrl,
                   activeFilter: _filter,
                   onSearchChanged: _onSearchChanged,
                   onFilterChanged: _setFilter,
                 ),
-              ),
-              // ── List ──
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-                  child: ValueListenableBuilder<StateApp>(
-                    valueListenable: _ctrl.stateFindAll,
-                    builder: (_, state, __) {
-                      if (state is LoadingState || state is StartState) {
-                        return _SkeletonList();
-                      }
-                      if (state is ErrorState) {
-                        return _ErrorWidget(message: state.message);
-                      }
-                      if (state is SuccessState) {
-                        final list = (state.data as List? ?? []).cast<CustomerModel>();
-                        if (list.isEmpty) {
-                          return _EmptyState(
-                            filter: _filter,
-                            onClear: () {
-                              _searchCtrl.clear();
-                              _setFilter('all');
-                            },
-                          );
-                        }
-                        return RefreshIndicator(
-                          color: _DS.brandBlue,
-                          onRefresh: () => _ctrl.fetchAll(
-                            search: _searchCtrl.text.trim(),
-                            filter: _filter,
-                          ),
-                          child: ListView.builder(
-                            padding: EdgeInsets.zero,
-                            itemCount: list.length,
-                            itemBuilder: (_, i) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _CustomerCard(
-                                customer: list[i],
-                                onTap: () => _openDetail(list[i]),
-                                onEdit: () => showDialog(
-                                  context: context,
-                                  barrierColor: Colors.black.withValues(alpha: 0.4),
-                                  builder: (_) => _CustomerFormModal(
-                                    ctrl: _ctrl,
-                                    customer: list[i],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-                      return const SizedBox.shrink();
+                const SizedBox(height: 12),
+                Expanded(
+                  child: _ListPane(
+                    ctrl: _ctrl,
+                    filter: _filter,
+                    onSelect: _openDetail,
+                    onEdit: _openEdit,
+                    onClearFilters: () {
+                      _searchCtrl.clear();
+                      _setFilter('all');
                     },
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -243,62 +210,107 @@ class _CustomersPageState extends State<CustomersPage> {
 // ─── Page Header ──────────────────────────────────────────────────────────────
 class _PageHeader extends StatelessWidget {
   final int? count;
-  final VoidCallback onCreateTap;
-  const _PageHeader({this.count, required this.onCreateTap});
+  final VoidCallback onCreate;
+  final VoidCallback onRefresh;
+  const _PageHeader({this.count, required this.onCreate, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  const Text(
-                    'Clientes',
-                    style: TextStyle(fontSize: 22, color: _DS.ink),
-                  ),
-                  if (count != null) ...[
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: _DS.surface,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: _DS.hairline),
-                      ),
-                      child: Text(
-                        '$count',
-                        style: const TextStyle(fontSize: 12, color: _DS.slate),
-                      ),
-                    ),
-                  ],
-                ]),
-                const SizedBox(height: 2),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
                 const Text(
-                  'Gerencie e acompanhe seus clientes',
-                  style: TextStyle(fontSize: 13, color: _DS.steel),
+                  'Clientes',
+                  style: TextStyle(fontSize: 22, color: _DS.ink, fontWeight: FontWeight.w600),
                 ),
-              ],
-            ),
+                if (count != null) ...[
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _DS.canvas,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: _DS.hairline),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(fontSize: 12, color: _DS.slate),
+                    ),
+                  ),
+                ],
+              ]),
+              const SizedBox(height: 2),
+              const Text(
+                'Gerencie e acompanhe seus clientes',
+                style: TextStyle(fontSize: 13, color: _DS.steel),
+              ),
+            ],
           ),
-          FilledButton.icon(
-            onPressed: onCreateTap,
-            style: FilledButton.styleFrom(
-              backgroundColor: _DS.ink,
-              shape: const StadiumBorder(),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            ),
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text('Novo cliente',
-                style: TextStyle(
-                  fontSize: 13,
-                )),
+        ),
+        _IconActionButton(
+          icon: Icons.refresh_rounded,
+          tooltip: 'Atualizar',
+          onTap: onRefresh,
+        ),
+        const SizedBox(width: 10),
+        FilledButton.icon(
+          onPressed: onCreate,
+          style: FilledButton.styleFrom(
+            backgroundColor: _DS.ink,
+            shape: const StadiumBorder(),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           ),
-        ],
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text(
+            'Novo cliente',
+            style: TextStyle(fontSize: 13),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IconActionButton extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  const _IconActionButton({required this.icon, required this.tooltip, required this.onTap});
+
+  @override
+  State<_IconActionButton> createState() => _IconActionButtonState();
+}
+
+class _IconActionButtonState extends State<_IconActionButton> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _hover ? _DS.surface : _DS.canvas,
+              borderRadius: BorderRadius.circular(_DS.rFull),
+              border: Border.all(color: _DS.hairline),
+            ),
+            alignment: Alignment.center,
+            child: Icon(widget.icon, size: 17, color: _DS.slate),
+          ),
+        ),
       ),
     );
   }
@@ -314,8 +326,11 @@ class _SummaryCards extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = summary;
     return LayoutBuilder(builder: (_, box) {
-      final narrow = box.maxWidth < 580;
-      final cols = narrow ? 2 : 5;
+      final cols = box.maxWidth < 580
+          ? 2
+          : box.maxWidth < 980
+              ? 3
+              : 5;
       final w = (box.maxWidth - (cols - 1) * 10) / cols;
       return Wrap(
         spacing: 10,
@@ -413,15 +428,20 @@ class _Kpi extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(label,
                   style: const TextStyle(
-                    fontSize: 10,
+                    fontSize: 11,
                     color: _DS.stone,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               loading || value == null
                   ? Container(height: 14, width: 50, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4)))
-                  : Text(value!, style: const TextStyle(fontSize: 14, color: _DS.ink)),
+                  : Text(value!,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: _DS.ink,
+                        fontWeight: FontWeight.w600,
+                      )),
             ]),
           ),
         ]),
@@ -454,98 +474,237 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SizedBox(
-        height: 40,
-        child: TextField(
-          controller: searchCtrl,
-          onChanged: onSearchChanged,
-          style: const TextStyle(fontSize: 13, color: _DS.ink),
-          decoration: InputDecoration(
-            hintText: 'Buscar por nome ou telefone…',
-            hintStyle: const TextStyle(color: _DS.muted, fontSize: 13),
-            prefixIcon: const Icon(Icons.search, size: 18, color: _DS.stone),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _DS.hairline)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _DS.hairline)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _DS.brandBlue, width: 2)),
-            filled: true,
-            fillColor: _DS.canvas,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 360,
+          height: 40,
+          child: TextField(
+            controller: searchCtrl,
+            onChanged: onSearchChanged,
+            style: const TextStyle(fontSize: 13, color: _DS.ink),
+            decoration: InputDecoration(
+              hintText: 'Buscar por nome ou telefone…',
+              hintStyle: const TextStyle(color: _DS.muted, fontSize: 13),
+              prefixIcon: const Icon(Icons.search, size: 18, color: _DS.stone),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _DS.hairline)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _DS.hairline)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _DS.brandBlue, width: 2)),
+              filled: true,
+              fillColor: _DS.canvas,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _filters.map((f) {
+              final active = activeFilter == f.$1;
+              return _FilterChip(
+                label: f.$2,
+                active: active,
+                onTap: () => onFilterChanged(f.$1),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FilterChip extends StatefulWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _FilterChip({required this.label, required this.active, required this.onTap});
+
+  @override
+  State<_FilterChip> createState() => _FilterChipState();
+}
+
+class _FilterChipState extends State<_FilterChip> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final active = widget.active;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? _DS.ink : (_hover ? _DS.surface : _DS.canvas),
+            borderRadius: BorderRadius.circular(_DS.rFull),
+            border: Border.all(color: active ? _DS.ink : _DS.hairline),
+          ),
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+              color: active ? Colors.white : _DS.slate,
+            ),
           ),
         ),
       ),
-      const SizedBox(height: 10),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: _filters.map((f) {
-            final active = activeFilter == f.$1;
-            return Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: GestureDetector(
-                onTap: () => onFilterChanged(f.$1),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: active ? _DS.ink : _DS.canvas,
-                    borderRadius: BorderRadius.circular(_DS.rFull),
-                    border: Border.all(color: active ? _DS.ink : _DS.hairline),
-                  ),
-                  child: Text(
-                    f.$2,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: active ? FontWeight.bold : FontWeight.w400,
-                      color: active ? Colors.white : _DS.slate,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
+    );
+  }
+}
+
+// ─── List Pane ────────────────────────────────────────────────────────────────
+class _ListPane extends StatelessWidget {
+  final CustomersController ctrl;
+  final String filter;
+  final ValueChanged<CustomerModel> onSelect;
+  final ValueChanged<CustomerModel> onEdit;
+  final VoidCallback onClearFilters;
+
+  const _ListPane({
+    required this.ctrl,
+    required this.filter,
+    required this.onSelect,
+    required this.onEdit,
+    required this.onClearFilters,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _DS.canvas,
+        borderRadius: BorderRadius.circular(_DS.rXl),
+        border: Border.all(color: _DS.hairlineSoft),
       ),
-    ]);
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          const _TableHeader(),
+          Expanded(
+            child: ValueListenableBuilder<StateApp>(
+              valueListenable: ctrl.stateFindAll,
+              builder: (_, state, __) {
+                if (state is LoadingState || state is StartState) {
+                  return const _SkeletonList();
+                }
+                if (state is ErrorState) {
+                  return _ErrorWidget(message: state.message);
+                }
+                if (state is SuccessState) {
+                  final list = (state.data as List? ?? []).cast<CustomerModel>();
+                  if (list.isEmpty) {
+                    return _EmptyState(filter: filter, onClear: onClearFilters);
+                  }
+                  return ListView.builder(
+                    padding: EdgeInsets.zero,
+                    itemCount: list.length,
+                    itemBuilder: (_, i) => _CustomerRow(
+                      customer: list[i],
+                      isLast: i == list.length - 1,
+                      onTap: () => onSelect(list[i]),
+                      onEdit: () => onEdit(list[i]),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TableHeader extends StatelessWidget {
+  const _TableHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: const BoxDecoration(
+        color: _DS.surface,
+        border: Border(bottom: BorderSide(color: _DS.hairlineSoft)),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(width: 36),
+          SizedBox(width: 12),
+          Expanded(flex: 4, child: _ColLabel('Cliente')),
+          Expanded(flex: 3, child: _ColLabel('Telefone')),
+          Expanded(flex: 2, child: _ColLabel('Pedidos')),
+          Expanded(flex: 3, child: _ColLabel('Total gasto', align: TextAlign.right)),
+          SizedBox(width: 62),
+        ],
+      ),
+    );
+  }
+}
+
+class _ColLabel extends StatelessWidget {
+  final String text;
+  final TextAlign align;
+  const _ColLabel(this.text, {this.align = TextAlign.left});
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      textAlign: align,
+      style: const TextStyle(
+        fontSize: 11,
+        color: _DS.stone,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.4,
+      ),
+    );
   }
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 class _SkeletonList extends StatelessWidget {
+  const _SkeletonList();
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
-      itemCount: 6,
+      itemCount: 8,
       padding: EdgeInsets.zero,
-      itemBuilder: (_, __) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Container(
-          height: 84,
-          decoration: BoxDecoration(
-            color: _DS.canvas,
-            borderRadius: BorderRadius.circular(_DS.rXl),
-            border: Border.all(color: _DS.hairlineSoft),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(children: [
-              Container(width: 44, height: 44, decoration: const BoxDecoration(color: _DS.hairlineSoft, shape: BoxShape.circle)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Container(height: 12, width: 130, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4))),
-                  const SizedBox(height: 6),
-                  Container(height: 10, width: 80, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4))),
-                ]),
-              ),
-              Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Container(height: 12, width: 56, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4))),
-                const SizedBox(height: 6),
-                Container(height: 10, width: 36, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4))),
-              ]),
+      itemBuilder: (_, __) => Container(
+        height: 64,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: _DS.hairlineSoft)),
+        ),
+        child: Row(children: [
+          Container(width: 36, height: 36, decoration: const BoxDecoration(color: _DS.hairlineSoft, shape: BoxShape.circle)),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 4,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+              Container(height: 12, width: 130, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4))),
+              const SizedBox(height: 6),
+              Container(height: 10, width: 80, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4))),
             ]),
           ),
-        ),
+          Expanded(flex: 3, child: Container(height: 11, width: 90, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4)))),
+          Expanded(flex: 2, child: Container(height: 11, width: 30, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4)))),
+          Expanded(
+            flex: 3,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Container(height: 12, width: 70, decoration: BoxDecoration(color: _DS.hairlineSoft, borderRadius: BorderRadius.circular(4))),
+            ),
+          ),
+          const SizedBox(width: 62),
+        ]),
       ),
     );
   }
@@ -561,38 +720,41 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final filtered = filter != 'all';
     return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          width: 68,
-          height: 68,
-          decoration: BoxDecoration(color: _DS.surface, shape: BoxShape.circle, border: Border.all(color: _DS.hairline)),
-          child: const Icon(Icons.group_outlined, size: 30, color: _DS.stone),
-        ),
-        const SizedBox(height: 14),
-        Text(
-          filtered ? 'Nenhum cliente neste filtro' : 'Nenhum cliente cadastrado',
-          style: const TextStyle(fontSize: 15, color: _DS.ink),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          filtered ? 'Tente limpar os filtros aplicados.' : 'Adicione seu primeiro cliente clicando em "Novo cliente".',
-          style: const TextStyle(fontSize: 13, color: _DS.stone),
-          textAlign: TextAlign.center,
-        ),
-        if (filtered) ...[
-          const SizedBox(height: 14),
-          OutlinedButton(
-            onPressed: onClear,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: _DS.ink,
-              side: const BorderSide(color: _DS.hairline),
-              shape: const StadiumBorder(),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            ),
-            child: const Text('Limpar filtros'),
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 68,
+            height: 68,
+            decoration: BoxDecoration(color: _DS.surface, shape: BoxShape.circle, border: Border.all(color: _DS.hairline)),
+            child: const Icon(Icons.group_outlined, size: 30, color: _DS.stone),
           ),
-        ],
-      ]),
+          const SizedBox(height: 14),
+          Text(
+            filtered ? 'Nenhum cliente neste filtro' : 'Nenhum cliente cadastrado',
+            style: const TextStyle(fontSize: 15, color: _DS.ink, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            filtered ? 'Tente limpar os filtros aplicados.' : 'Adicione seu primeiro cliente clicando em "Novo cliente".',
+            style: const TextStyle(fontSize: 13, color: _DS.stone),
+            textAlign: TextAlign.center,
+          ),
+          if (filtered) ...[
+            const SizedBox(height: 14),
+            OutlinedButton(
+              onPressed: onClear,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _DS.ink,
+                side: const BorderSide(color: _DS.hairline),
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              ),
+              child: const Text('Limpar filtros'),
+            ),
+          ],
+        ]),
+      ),
     );
   }
 }

@@ -32,11 +32,11 @@ class _DS {
 
 const _kPollInterval = Duration(seconds: 8);
 const _kTileSize = 256.0;
-// Sub-domínios oficiais da OSM tile API — não exige chave.
-const _kTileSubdomains = ['a', 'b', 'c'];
+// Tiles do CartoDB Positron — visual limpo, claro, premium. Sem chave.
+const _kTileSubdomains = ['a', 'b', 'c', 'd'];
 String _tileUrl(int z, int x, int y) {
   final sd = _kTileSubdomains[(x + y) % _kTileSubdomains.length];
-  return 'https://$sd.tile.openstreetmap.org/$z/$x/$y.png';
+  return 'https://cartodb-basemaps-$sd.global.ssl.fastly.net/light_all/$z/$x/$y.png';
 }
 
 // ─── Status helpers ──────────────────────────────────────────────────────────
@@ -110,7 +110,6 @@ class _CustomerTrackingMapPageState extends State<CustomerTrackingMapPage> {
         _loading = false;
         if (sessionsRes.success && sessionsRes.data is List) {
           _sessions = (sessionsRes.data as List).cast<TrackingSessionModel>();
-          // Keep selection in sync (or drop if it's gone).
           if (_selected != null) {
             final fresh = _sessions.firstWhere(
               (s) => s.sessionId == _selected!.sessionId,
@@ -155,7 +154,6 @@ class _CustomerTrackingMapPageState extends State<CustomerTrackingMapPage> {
                       flex: 7,
                       child: _MapPanel(
                         sessions: _mapSessions,
-                        selected: _selected,
                         onSelect: (s) => setState(() => _selected = s),
                         loading: _loading && _sessions.isEmpty,
                         error: _error,
@@ -180,7 +178,6 @@ class _CustomerTrackingMapPageState extends State<CustomerTrackingMapPage> {
                     height: 380,
                     child: _MapPanel(
                       sessions: _mapSessions,
-                      selected: _selected,
                       onSelect: (s) => setState(() => _selected = s),
                       loading: _loading && _sessions.isEmpty,
                       error: _error,
@@ -347,17 +344,15 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-// ─── Painel central com mapa e marcadores clicáveis ─────────────────────────
+// ─── Painel central com mapa interativo ──────────────────────────────────────
 class _MapPanel extends StatelessWidget {
   final List<TrackingSessionModel> sessions;
-  final TrackingSessionModel? selected;
   final ValueChanged<TrackingSessionModel> onSelect;
   final bool loading;
   final String? error;
 
   const _MapPanel({
     required this.sessions,
-    required this.selected,
     required this.onSelect,
     required this.loading,
     required this.error,
@@ -407,83 +402,81 @@ class _MapPanel extends StatelessWidget {
   }
 }
 
-class _MapCanvas extends StatelessWidget {
+// ─── Map canvas (stateful: pan + zoom interativos) ───────────────────────────
+class _MapCanvas extends StatefulWidget {
   final List<TrackingSessionModel> sessions;
   final ValueChanged<TrackingSessionModel> onSelect;
   const _MapCanvas({required this.sessions, required this.onSelect});
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (sessions.isEmpty) {
-          return _EmptyMap(constraints: constraints);
-        }
-        final w = constraints.maxWidth.clamp(320.0, 4096.0).toDouble();
-        final h = constraints.maxHeight.clamp(240.0, 4096.0).toDouble();
-
-        // Bounding box + centro do conjunto de sessões com localização.
-        final lats = sessions.map((s) => s.latitude!).toList();
-        final lngs = sessions.map((s) => s.longitude!).toList();
-        final minLat = lats.reduce(math.min);
-        final maxLat = lats.reduce(math.max);
-        final minLng = lngs.reduce(math.min);
-        final maxLng = lngs.reduce(math.max);
-        final centerLat = (minLat + maxLat) / 2;
-        final centerLng = (minLng + maxLng) / 2;
-
-        final zoom = _fitZoom(
-          minLat: minLat,
-          maxLat: maxLat,
-          minLng: minLng,
-          maxLng: maxLng,
-          widthPx: w,
-          heightPx: h,
-        );
-
-        return SizedBox(
-          width: w,
-          height: h,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _OsmTileLayer(
-                centerLat: centerLat,
-                centerLng: centerLng,
-                zoom: zoom,
-                width: w,
-                height: h,
-              ),
-              // Atribuição obrigatória OSM.
-              const Positioned(
-                bottom: 4,
-                right: 8,
-                child: Text(
-                  '© OpenStreetMap',
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: _DS.steel,
-                  ),
-                ),
-              ),
-              for (final s in sessions)
-                _PositionedMarker(
-                  session: s,
-                  centerLat: centerLat,
-                  centerLng: centerLng,
-                  zoom: zoom,
-                  width: w,
-                  height: h,
-                  onTap: () => onSelect(s),
-                ),
-            ],
-          ),
-        );
-      },
-    );
+  // Web Mercator forward projection (lat/lng → pixel global).
+  static Offset project(double lat, double lng, double worldSize) {
+    final x = (lng + 180.0) / 360.0 * worldSize;
+    final sinLat = math.sin(lat * math.pi / 180.0);
+    final y = (0.5 -
+            math.log((1 + sinLat) / (1 - sinLat)) / (4 * math.pi)) *
+        worldSize;
+    return Offset(x, y);
   }
 
-  // Zoom inteiro mais alto cujo bbox ainda cabe em ~90% do viewport.
+  // Inverse Web Mercator (world pixel → lat/lng).
+  static (double, double) unproject(Offset worldPx, double worldSize) {
+    final lng = (worldPx.dx / worldSize) * 360.0 - 180.0;
+    final n = math.pi - 2 * math.pi * worldPx.dy / worldSize;
+    final lat = (180.0 / math.pi) *
+        math.atan(0.5 * (math.exp(n) - math.exp(-n)));
+    return (lat, lng);
+  }
+
+  @override
+  State<_MapCanvas> createState() => _MapCanvasState();
+}
+
+class _MapCanvasState extends State<_MapCanvas> {
+  double? _centerLat;
+  double? _centerLng;
+  int _zoom = 14;
+  bool _userInteracted = false;
+
+  static const _kMinZoom = 3;
+  static const _kMaxZoom = 18;
+
+  @override
+  void didUpdateWidget(covariant _MapCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Auto-fit volta quando o usuário não personalizou ainda.
+    if (!_userInteracted) {
+      _centerLat = null;
+      _centerLng = null;
+    }
+  }
+
+  void _setZoom(int delta) {
+    setState(() {
+      _zoom = (_zoom + delta).clamp(_kMinZoom, _kMaxZoom);
+      _userInteracted = true;
+    });
+  }
+
+  void _recenter() {
+    setState(() {
+      _centerLat = null;
+      _centerLng = null;
+      _userInteracted = false;
+    });
+  }
+
+  void _onPan(Offset delta, double worldSize, double curLat, double curLng) {
+    final centerPx = _MapCanvas.project(curLat, curLng, worldSize);
+    final newCenterPx = centerPx - delta;
+    final (newLat, newLng) = _MapCanvas.unproject(newCenterPx, worldSize);
+    setState(() {
+      _centerLat = newLat.clamp(-85.0, 85.0);
+      _centerLng = ((newLng + 180.0) % 360.0) - 180.0;
+      _userInteracted = true;
+    });
+  }
+
+  // Zoom inteiro mais alto cujo bbox ainda cabe em ~85% do viewport.
   int _fitZoom({
     required double minLat,
     required double maxLat,
@@ -492,29 +485,213 @@ class _MapCanvas extends StatelessWidget {
     required double widthPx,
     required double heightPx,
   }) {
-    for (int z = 18; z >= 2; z--) {
+    for (int z = _kMaxZoom; z >= _kMinZoom; z--) {
       final worldSize = _kTileSize * math.pow(2, z);
-      final tl = _project(maxLat, minLng, worldSize);
-      final br = _project(minLat, maxLng, worldSize);
+      final tl = _MapCanvas.project(maxLat, minLng, worldSize);
+      final br = _MapCanvas.project(minLat, maxLng, worldSize);
       final dx = (br.dx - tl.dx).abs();
       final dy = (br.dy - tl.dy).abs();
-      if (dx <= widthPx * 0.9 && dy <= heightPx * 0.9) return z;
+      if (dx <= widthPx * 0.85 && dy <= heightPx * 0.85) return z;
     }
     return 14;
   }
 
-  // Projeção Web Mercator (lat/lng → pixel global, com worldSize = 256·2^z).
-  static Offset _project(double lat, double lng, double worldSize) {
-    final x = (lng + 180.0) / 360.0 * worldSize;
-    final sinLat = math.sin(lat * math.pi / 180.0);
-    final y = (0.5 -
-            math.log((1 + sinLat) / (1 - sinLat)) / (4 * math.pi)) *
-        worldSize;
-    return Offset(x, y);
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (widget.sessions.isEmpty) {
+          return _EmptyMap(constraints: constraints);
+        }
+        final w = constraints.maxWidth.clamp(320.0, 4096.0).toDouble();
+        final h = constraints.maxHeight.clamp(240.0, 4096.0).toDouble();
+
+        final lats = widget.sessions.map((s) => s.latitude!).toList();
+        final lngs = widget.sessions.map((s) => s.longitude!).toList();
+        final minLat = lats.reduce(math.min);
+        final maxLat = lats.reduce(math.max);
+        final minLng = lngs.reduce(math.min);
+        final maxLng = lngs.reduce(math.max);
+
+        double centerLat = _centerLat ?? ((minLat + maxLat) / 2);
+        double centerLng = _centerLng ?? ((minLng + maxLng) / 2);
+        int zoom = _userInteracted
+            ? _zoom
+            : _fitZoom(
+                minLat: minLat,
+                maxLat: maxLat,
+                minLng: minLng,
+                maxLng: maxLng,
+                widthPx: w,
+                heightPx: h,
+              );
+        if (!_userInteracted) _zoom = zoom;
+
+        final worldSize = _kTileSize * math.pow(2, zoom).toDouble();
+
+        return SizedBox(
+          width: w,
+          height: h,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanUpdate: (d) => _onPan(d.delta, worldSize, centerLat, centerLng),
+                child: _OsmTileLayer(
+                  centerLat: centerLat,
+                  centerLng: centerLng,
+                  zoom: zoom,
+                  width: w,
+                  height: h,
+                ),
+              ),
+              const Positioned(
+                bottom: 6,
+                right: 10,
+                child: Text(
+                  '© OpenStreetMap · CARTO',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: _DS.steel,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 12,
+                left: 12,
+                child: _MapControls(
+                  onZoomIn: _zoom < _kMaxZoom ? () => _setZoom(1) : null,
+                  onZoomOut: _zoom > _kMinZoom ? () => _setZoom(-1) : null,
+                  onRecenter: _userInteracted ? _recenter : null,
+                ),
+              ),
+              for (final s in widget.sessions)
+                _PositionedMarker(
+                  session: s,
+                  centerLat: centerLat,
+                  centerLng: centerLng,
+                  zoom: zoom,
+                  width: w,
+                  height: h,
+                  onTap: () => widget.onSelect(s),
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
-// ─── Renderiza tiles do OpenStreetMap como camada de fundo ───────────────────
+// ─── Controles flutuantes (zoom + recenter) ──────────────────────────────────
+class _MapControls extends StatelessWidget {
+  final VoidCallback? onZoomIn;
+  final VoidCallback? onZoomOut;
+  final VoidCallback? onRecenter;
+  const _MapControls({
+    required this.onZoomIn,
+    required this.onZoomOut,
+    required this.onRecenter,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(_DS.rLg),
+            border: Border.all(color: _DS.hairline),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MapIconButton(
+                icon: Icons.add,
+                tooltip: 'Aproximar',
+                onTap: onZoomIn,
+              ),
+              const Divider(height: 1, color: _DS.hairlineSoft),
+              _MapIconButton(
+                icon: Icons.remove,
+                tooltip: 'Afastar',
+                onTap: onZoomOut,
+              ),
+            ],
+          ),
+        ),
+        if (onRecenter != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(_DS.rLg),
+              border: Border.all(color: _DS.hairline),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: _MapIconButton(
+              icon: Icons.center_focus_strong_rounded,
+              tooltip: 'Recentralizar',
+              onTap: onRecenter,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _MapIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  const _MapIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: SizedBox(
+          width: 36,
+          height: 36,
+          child: Icon(
+            icon,
+            size: 18,
+            color: enabled ? _DS.ink : _DS.muted,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Camada de tiles do CartoDB Positron ─────────────────────────────────────
 class _OsmTileLayer extends StatelessWidget {
   final double centerLat;
   final double centerLng;
@@ -532,28 +709,23 @@ class _OsmTileLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final worldSize = _kTileSize * math.pow(2, zoom);
-    final centerWorld = _MapCanvas._project(centerLat, centerLng, worldSize);
+    final worldSize = _kTileSize * math.pow(2, zoom).toDouble();
+    final centerWorld = _MapCanvas.project(centerLat, centerLng, worldSize);
 
-    // Origem do viewport em coordenadas globais de pixel.
     final viewLeft = centerWorld.dx - width / 2;
     final viewTop = centerWorld.dy - height / 2;
 
-    // Range de tiles necessárias para cobrir o viewport.
     final firstX = (viewLeft / _kTileSize).floor();
     final lastX = ((viewLeft + width) / _kTileSize).floor();
     final firstY = (viewTop / _kTileSize).floor();
     final lastY = ((viewTop + height) / _kTileSize).floor();
 
-    final maxTile = (1 << zoom) - 1; // (2^z - 1)
+    final maxTile = (1 << zoom) - 1;
     final tiles = <Widget>[];
 
     for (int tx = firstX; tx <= lastX; tx++) {
       for (int ty = firstY; ty <= lastY; ty++) {
-        // Esconde tiles fora dos limites verticais (poles); horizontal pode
-        // ser tratado por wrap, mas no nosso caso de operação local é raro.
         if (ty < 0 || ty > maxTile) continue;
-        // Wrap horizontal para limites do mundo.
         final wrappedX = ((tx % (maxTile + 1)) + (maxTile + 1)) % (maxTile + 1);
         final left = tx * _kTileSize - viewLeft;
         final top = ty * _kTileSize - viewTop;
@@ -576,10 +748,14 @@ class _OsmTileLayer extends StatelessWidget {
       }
     }
 
-    return ClipRect(child: Stack(children: tiles));
+    return Container(
+      color: _DS.surface,
+      child: ClipRect(child: Stack(children: tiles)),
+    );
   }
 }
 
+// ─── Marcador posicionado + halo pulsante ────────────────────────────────────
 class _PositionedMarker extends StatelessWidget {
   final TrackingSessionModel session;
   final double centerLat;
@@ -601,9 +777,9 @@ class _PositionedMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final worldSize = 256.0 * math.pow(2, zoom);
-    final centerPx = _MapCanvas._project(centerLat, centerLng, worldSize);
-    final pointPx = _MapCanvas._project(session.latitude!, session.longitude!, worldSize);
+    final worldSize = _kTileSize * math.pow(2, zoom).toDouble();
+    final centerPx = _MapCanvas.project(centerLat, centerLng, worldSize);
+    final pointPx = _MapCanvas.project(session.latitude!, session.longitude!, worldSize);
     final dx = pointPx.dx - centerPx.dx + width / 2;
     final dy = pointPx.dy - centerPx.dy + height / 2;
 
@@ -699,7 +875,7 @@ class _PulsingMarkerState extends State<_PulsingMarker>
   }
 }
 
-// ─── Side panel: lista + detalhes ─────────────────────────────────────────────
+// ─── Painel lateral: detalhe + lista ─────────────────────────────────────────
 class _SidePanel extends StatelessWidget {
   final List<TrackingSessionModel> sessions;
   final TrackingSessionModel? selected;

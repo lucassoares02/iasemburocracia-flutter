@@ -1,26 +1,29 @@
 part of 'customers_page.dart';
 
-// ─── Customer Card ─────────────────────────────────────────────────────────────
-class _CustomerCard extends StatefulWidget {
+// ─── Customer Row (table-style) ───────────────────────────────────────────────
+class _CustomerRow extends StatefulWidget {
   final CustomerModel customer;
+  final bool isLast;
   final VoidCallback onTap;
   final VoidCallback onEdit;
-  const _CustomerCard({
+  const _CustomerRow({
     required this.customer,
+    required this.isLast,
     required this.onTap,
     required this.onEdit,
   });
 
   @override
-  State<_CustomerCard> createState() => _CustomerCardState();
+  State<_CustomerRow> createState() => _CustomerRowState();
 }
 
-class _CustomerCardState extends State<_CustomerCard> {
+class _CustomerRowState extends State<_CustomerRow> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final c = widget.customer;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -28,101 +31,111 @@ class _CustomerCardState extends State<_CustomerCard> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: const Duration(milliseconds: 120),
           decoration: BoxDecoration(
-            color: _DS.canvas,
-            borderRadius: BorderRadius.circular(_DS.rXl),
-            border: Border.all(
-              color: _hovered ? _DS.hairline : _DS.hairlineSoft,
+            color: _hovered ? _DS.surface : _DS.canvas,
+            border: Border(
+              bottom: BorderSide(color: widget.isLast ? Colors.transparent : _DS.hairlineSoft),
             ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              _CustomerAvatar(name: c.name),
+              _CustomerAvatar(name: c.name, size: 36),
               const SizedBox(width: 12),
               Expanded(
+                flex: 4,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            c.name ?? '—',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: _DS.ink,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (c.isRecurring) ...[
-                          const SizedBox(width: 6),
-                          const _CustomerBadge(
-                            label: 'Recorrente',
-                            fg: Color(0xFF4262FF),
-                            bg: Color(0xFFEEF3FF),
-                          ),
-                        ],
-                        if (c.daysSinceCreated <= 30) ...[
-                          const SizedBox(width: 4),
-                          const _CustomerBadge(
-                            label: 'Novo',
-                            fg: Color(0xFF065F46),
-                            bg: Color(0xFFD1FAE5),
-                          ),
-                        ],
-                        if ((c.totalSpent ?? 0) >= 500) ...[
-                          const SizedBox(width: 4),
-                          const _CustomerBadge(
-                            label: 'Alto Valor',
-                            fg: Color(0xFF946C0A),
-                            bg: Color(0xFFFFF4C4),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 3),
                     Text(
-                      c.phone?.isNotEmpty == true ? c.phone! : 'Sem telefone',
-                      style: const TextStyle(fontSize: 12, color: _DS.stone),
+                      c.name ?? '—',
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        color: _DS.ink,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    if (_anyBadge(c)) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          if (c.isRecurring)
+                            const _CustomerBadge(
+                              label: 'Recorrente',
+                              fg: Color(0xFF4262FF),
+                              bg: Color(0xFFEEF3FF),
+                            ),
+                          if (c.daysSinceCreated <= 30)
+                            const _CustomerBadge(
+                              label: 'Novo',
+                              fg: Color(0xFF065F46),
+                              bg: Color(0xFFD1FAE5),
+                            ),
+                          if ((c.totalSpent ?? 0) >= 500)
+                            const _CustomerBadge(
+                              label: 'Alto Valor',
+                              fg: Color(0xFF946C0A),
+                              bg: Color(0xFFFFF4C4),
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    c.totalSpent != null ? _currencyFmt.format(c.totalSpent) : 'R\$ 0,00',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: _DS.ink,
+              Expanded(
+                flex: 3,
+                child: Text(
+                  c.phone?.isNotEmpty == true ? c.phone! : '—',
+                  style: const TextStyle(fontSize: 13, color: _DS.steel),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  '${c.totalOrders ?? 0}',
+                  style: const TextStyle(fontSize: 13, color: _DS.steel),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  c.totalSpent != null ? _currencyFmt.format(c.totalSpent) : 'R\$ 0,00',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: _DS.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 40,
+                child: Center(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 120),
+                    opacity: _hovered ? 1 : 0,
+                    child: _QuickAction(
+                      icon: Icons.edit_outlined,
+                      tooltip: 'Editar',
+                      onTap: widget.onEdit,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${c.totalOrders ?? 0} pedido${(c.totalOrders ?? 0) == 1 ? '' : 's'}',
-                    style: const TextStyle(fontSize: 11, color: _DS.stone),
-                  ),
-                ],
+                ),
               ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 150),
-                child: _hovered
-                    ? Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: _QuickAction(
-                          icon: Icons.edit_outlined,
-                          tooltip: 'Editar',
-                          onTap: widget.onEdit,
-                        ),
-                      )
-                    : const SizedBox.shrink(),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: _hovered ? _DS.slate : _DS.muted,
               ),
             ],
           ),
@@ -130,6 +143,9 @@ class _CustomerCardState extends State<_CustomerCard> {
       ),
     );
   }
+
+  bool _anyBadge(CustomerModel c) =>
+      c.isRecurring || c.daysSinceCreated <= 30 || (c.totalSpent ?? 0) >= 500;
 }
 
 // ─── Avatar ────────────────────────────────────────────────────────────────────
@@ -154,6 +170,7 @@ class _CustomerAvatar extends StatelessWidget {
           color: Colors.white,
           fontSize: size * 0.36,
           letterSpacing: 0.5,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -183,6 +200,7 @@ class _CustomerBadge extends StatelessWidget {
         style: TextStyle(
           fontSize: 10,
           color: fg,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -190,7 +208,7 @@ class _CustomerBadge extends StatelessWidget {
 }
 
 // ─── Quick action button ───────────────────────────────────────────────────────
-class _QuickAction extends StatelessWidget {
+class _QuickAction extends StatefulWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
@@ -201,21 +219,33 @@ class _QuickAction extends StatelessWidget {
   });
 
   @override
+  State<_QuickAction> createState() => _QuickActionState();
+}
+
+class _QuickActionState extends State<_QuickAction> {
+  bool _hover = false;
+  @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: _DS.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: _DS.hairline),
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _hover ? _DS.canvas : _DS.surface,
+              borderRadius: BorderRadius.circular(_DS.rMd),
+              border: Border.all(color: _DS.hairline),
+            ),
+            alignment: Alignment.center,
+            child: Icon(widget.icon, size: 14, color: _DS.slate),
           ),
-          alignment: Alignment.center,
-          child: Icon(icon, size: 15, color: _DS.slate),
         ),
       ),
     );

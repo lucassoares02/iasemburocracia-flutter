@@ -87,6 +87,16 @@ GoRouter appRouter(AuthProvider authProvider) {
             path: '/customers',
             pageBuilder: (_, __) =>
                 const NoTransitionPage(child: CustomersPage()),
+            routes: [
+              GoRoute(
+                name: 'customer-detail',
+                path: ':id',
+                pageBuilder: (_, state) {
+                  final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+                  return NoTransitionPage(child: CustomerDetailPage(id: id));
+                },
+              ),
+            ],
           ),
         ],
       ),

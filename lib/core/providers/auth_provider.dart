@@ -32,6 +32,10 @@ class AuthProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('access_token', user.accessToken);
     await prefs.setInt('type', user.type);
+    if (user.company > 0) {
+      await prefs.setInt('company', user.company);
+      _company = user.company;
+    }
     _accessToken = user.accessToken;
     _type = user.type;
     _isLoggedIn = true;

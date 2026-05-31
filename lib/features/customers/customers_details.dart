@@ -1,93 +1,6 @@
 part of 'customers_page.dart';
 
-// ─── Detail Page ───────────────────────────────────────────────────────────────
-class _CustomerDetailPage extends StatefulWidget {
-  final int customerId;
-  final CustomersController ctrl;
-  const _CustomerDetailPage({required this.customerId, required this.ctrl});
-
-  @override
-  State<_CustomerDetailPage> createState() => _CustomerDetailPageState();
-}
-
-class _CustomerDetailPageState extends State<_CustomerDetailPage> {
-  @override
-  void initState() {
-    super.initState();
-    widget.ctrl.fetchDetails(widget.customerId);
-  }
-
-  void _openEdit(CustomerModel c) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (_) => _CustomerFormModal(ctrl: widget.ctrl, customer: c),
-    );
-  }
-
-  Future<void> _confirmDelete(CustomerModel c) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (_) => _DeleteConfirmDialog(name: c.name),
-    );
-    if (confirmed != true || !mounted) return;
-    final res = await widget.ctrl.deleteCustomer(widget.customerId);
-    if (res.success && mounted) Navigator.of(context).pop();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _DS.surface,
-      appBar: AppBar(
-        backgroundColor: _DS.canvas,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 18, color: _DS.ink),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text(
-          'Detalhes do cliente',
-          style: TextStyle(fontSize: 16, color: _DS.ink),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: _DS.hairlineSoft),
-        ),
-      ),
-      body: ValueListenableBuilder<StateApp>(
-        valueListenable: widget.ctrl.stateDetails,
-        builder: (_, state, __) {
-          if (state is LoadingState || state is StartState) {
-            return const _DetailSkeleton();
-          }
-          if (state is ErrorState) {
-            return Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.error_outline, size: 36, color: _DS.danger),
-                const SizedBox(height: 10),
-                Text(state.message, style: const TextStyle(fontSize: 13, color: _DS.stone)),
-              ]),
-            );
-          }
-          if (state is SuccessState && state.data is CustomerModel) {
-            final c = state.data as CustomerModel;
-            return _DetailContent(
-              customer: c,
-              onEdit: () => _openEdit(c),
-              onDelete: () => _confirmDelete(c),
-            );
-          }
-          return const SizedBox.shrink();
-        },
-      ),
-    );
-  }
-}
-
-// ─── Detail Content ────────────────────────────────────────────────────────────
+// ─── Detail Content (shared by standalone detail page) ────────────────────────
 class _DetailContent extends StatelessWidget {
   final CustomerModel customer;
   final VoidCallback onEdit;
@@ -101,28 +14,23 @@ class _DetailContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = customer;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 760),
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-          children: [
-            _DetailHeader(customer: c, onEdit: onEdit, onDelete: onDelete),
-            const SizedBox(height: 16),
-            _InsightsSection(customer: c),
-            const SizedBox(height: 16),
-            _MetricsGrid(customer: c),
-            if (c.hasAddress) ...[
-              const SizedBox(height: 16),
-              _AddressCard(customer: c),
-            ],
-            if (c.hasOrders) ...[
-              const SizedBox(height: 16),
-              _OrdersHistoryCard(customer: c),
-            ],
-          ],
-        ),
-      ),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
+      children: [
+        _DetailHeader(customer: c, onEdit: onEdit, onDelete: onDelete),
+        const SizedBox(height: 16),
+        _InsightsSection(customer: c),
+        const SizedBox(height: 16),
+        _MetricsGrid(customer: c),
+        if (c.hasAddress) ...[
+          const SizedBox(height: 16),
+          _AddressCard(customer: c),
+        ],
+        if (c.hasOrders) ...[
+          const SizedBox(height: 16),
+          _OrdersHistoryCard(customer: c),
+        ],
+      ],
     );
   }
 }
@@ -142,114 +50,84 @@ class _DetailHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = customer;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: _DS.canvas,
-        borderRadius: BorderRadius.circular(_DS.rXl),
+        borderRadius: BorderRadius.circular(_DS.rLg),
         border: Border.all(color: _DS.hairlineSoft),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _CustomerAvatar(name: c.name, size: 56),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        c.name ?? '—',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          color: _DS.ink,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                if (c.phone?.isNotEmpty == true)
-                  Text(
-                    c.phone!,
-                    style: const TextStyle(fontSize: 13, color: _DS.stone),
-                  ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    if (c.isRecurring)
-                      const _CustomerBadge(
-                        label: 'Recorrente',
-                        fg: Color(0xFF4262FF),
-                        bg: Color(0xFFEEF3FF),
-                      ),
-                    if (c.daysSinceCreated <= 30)
-                      const _CustomerBadge(
-                        label: 'Novo',
-                        fg: Color(0xFF065F46),
-                        bg: Color(0xFFD1FAE5),
-                      ),
-                    if ((c.totalSpent ?? 0) >= 500)
-                      const _CustomerBadge(
-                        label: 'Alto Valor',
-                        fg: Color(0xFF946C0A),
-                        bg: Color(0xFFFFF4C4),
-                      ),
-                    if (c.daysSinceLastOrder <= 30 && c.hasOrders)
-                      const _CustomerBadge(
-                        label: 'Ativo',
-                        fg: Color(0xFF187574),
-                        bg: Color(0xFFCCFBF1),
-                      ),
-                    if (c.daysSinceLastOrder > 60 && c.hasOrders)
-                      const _CustomerBadge(
-                        label: 'Inativo',
-                        fg: Color(0xFF6B6F7E),
-                        bg: Color(0xFFEEF0F3),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Column(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              OutlinedButton.icon(
+              _CustomerAvatar(name: c.name, size: 52),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      c.name ?? '—',
+                      style: const TextStyle(fontSize: 17, color: _DS.ink, fontWeight: FontWeight.w600),
+                    ),
+                    if (c.phone?.isNotEmpty == true) ...[
+                      const SizedBox(height: 4),
+                      Text(c.phone!, style: const TextStyle(fontSize: 13, color: _DS.stone)),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              if (c.isRecurring)
+                const _CustomerBadge(label: 'Recorrente', fg: Color(0xFF4262FF), bg: Color(0xFFEEF3FF)),
+              if (c.daysSinceCreated <= 30)
+                const _CustomerBadge(label: 'Novo', fg: Color(0xFF065F46), bg: Color(0xFFD1FAE5)),
+              if ((c.totalSpent ?? 0) >= 500)
+                const _CustomerBadge(label: 'Alto Valor', fg: Color(0xFF946C0A), bg: Color(0xFFFFF4C4)),
+              if (c.daysSinceLastOrder <= 30 && c.hasOrders)
+                const _CustomerBadge(label: 'Ativo', fg: Color(0xFF187574), bg: Color(0xFFCCFBF1)),
+              if (c.daysSinceLastOrder > 60 && c.hasOrders)
+                const _CustomerBadge(label: 'Inativo', fg: Color(0xFF6B6F7E), bg: Color(0xFFEEF0F3)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
                 onPressed: onEdit,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: _DS.ink,
                   side: const BorderSide(color: _DS.hairline),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  shape: const StadiumBorder(),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
                 ),
                 icon: const Icon(Icons.edit_outlined, size: 15),
-                label: const Text('Editar',
-                    style: TextStyle(
-                      fontSize: 13,
-                    )),
+                label: const Text('Editar', style: TextStyle(fontSize: 13)),
               ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
                 onPressed: onDelete,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: _DS.danger,
                   side: const BorderSide(color: _DS.dangerLight),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  shape: const StadiumBorder(),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
                 ),
                 icon: const Icon(Icons.delete_outline, size: 15),
-                label: const Text('Excluir',
-                    style: TextStyle(
-                      fontSize: 13,
-                    )),
+                label: const Text('Excluir', style: TextStyle(fontSize: 13)),
               ),
-            ],
-          ),
+            ),
+          ]),
         ],
       ),
     );
@@ -266,9 +144,7 @@ class _InsightsSection extends StatelessWidget {
     final c = customer;
     final insights = <String>[];
 
-    if (c.isRecurring) {
-      insights.add('${c.totalOrders} pedidos no total');
-    }
+    if (c.isRecurring) insights.add('${c.totalOrders} pedidos no total');
     if (c.lastOrderAt != null) {
       final days = c.daysSinceLastOrder;
       if (days == 0) {
@@ -304,10 +180,7 @@ class _InsightsSection extends StatelessWidget {
                 ),
                 child: Text(
                   text,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: _DS.slate,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: _DS.slate),
                 ),
               ))
           .toList(),
@@ -324,8 +197,7 @@ class _MetricsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = customer;
     return LayoutBuilder(builder: (_, box) {
-      final narrow = box.maxWidth < 480;
-      final cols = narrow ? 2 : 4;
+      final cols = box.maxWidth < 380 ? 2 : (box.maxWidth < 560 ? 2 : 4);
       const spacing = 10.0;
       final w = (box.maxWidth - (cols - 1) * spacing) / cols;
       return Wrap(
@@ -389,25 +261,30 @@ class _MetricTile extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: _DS.canvas,
-          borderRadius: BorderRadius.circular(_DS.rXl),
+          borderRadius: BorderRadius.circular(_DS.rLg),
           border: Border.all(color: _DS.hairlineSoft),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(10)),
-              child: Icon(icon, color: iconColor, size: 16),
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(9)),
+              child: Icon(icon, color: iconColor, size: 15),
             ),
             const SizedBox(height: 10),
             Text(label, style: const TextStyle(fontSize: 11, color: _DS.stone)),
             const SizedBox(height: 2),
-            Text(value, style: const TextStyle(fontSize: 15, color: _DS.ink), maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 14, color: _DS.ink, fontWeight: FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),
@@ -435,7 +312,7 @@ class _AddressCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _DS.canvas,
-        borderRadius: BorderRadius.circular(_DS.rXl),
+        borderRadius: BorderRadius.circular(_DS.rLg),
         border: Border.all(color: _DS.hairlineSoft),
       ),
       child: Column(
@@ -443,13 +320,13 @@ class _AddressCard extends StatelessWidget {
         children: [
           Row(children: [
             Container(
-              width: 32,
-              height: 32,
+              width: 30,
+              height: 30,
               decoration: BoxDecoration(color: const Color(0xFFEEF3FF), borderRadius: BorderRadius.circular(9)),
-              child: const Icon(Icons.location_on_outlined, size: 16, color: _DS.brandBlue),
+              child: const Icon(Icons.location_on_outlined, size: 15, color: _DS.brandBlue),
             ),
             const SizedBox(width: 10),
-            const Text('Endereço', style: TextStyle(fontSize: 14, color: _DS.ink)),
+            const Text('Endereço', style: TextStyle(fontSize: 13, color: _DS.ink, fontWeight: FontWeight.w600)),
           ]),
           const SizedBox(height: 12),
           if (line1.isNotEmpty) _AddrLine(text: line1),
@@ -484,23 +361,23 @@ class _OrdersHistoryCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: _DS.canvas,
-        borderRadius: BorderRadius.circular(_DS.rXl),
+        borderRadius: BorderRadius.circular(_DS.rLg),
         border: Border.all(color: _DS.hairlineSoft),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
             child: Row(children: [
               Container(
-                width: 32,
-                height: 32,
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(color: const Color(0xFFEDE9FE), borderRadius: BorderRadius.circular(9)),
-                child: const Icon(Icons.receipt_long_outlined, size: 16, color: Color(0xFF6D28D9)),
+                child: const Icon(Icons.receipt_long_outlined, size: 15, color: Color(0xFF6D28D9)),
               ),
               const SizedBox(width: 10),
-              const Text('Histórico de pedidos', style: TextStyle(fontSize: 14, color: _DS.ink)),
+              const Text('Histórico de pedidos', style: TextStyle(fontSize: 13, color: _DS.ink, fontWeight: FontWeight.w600)),
               const Spacer(),
               Text('${orders.length} pedido${orders.length == 1 ? '' : 's'}', style: const TextStyle(fontSize: 12, color: _DS.stone)),
             ]),
@@ -560,19 +437,13 @@ class _OrderHistoryItem extends StatelessWidget {
                     ),
                     child: Text(
                       _DS.statusLabel(order.status),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: _DS.statusFg(order.status),
-                      ),
+                      style: TextStyle(fontSize: 10, color: _DS.statusFg(order.status), fontWeight: FontWeight.w600),
                     ),
                   ),
                   const Spacer(),
                   Text(
                     order.total != null ? _currencyFmt.format(order.total) : '—',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: _DS.ink,
-                    ),
+                    style: const TextStyle(fontSize: 13, color: _DS.ink, fontWeight: FontWeight.w600),
                   ),
                 ]),
                 if (itemNames.isNotEmpty) ...[
@@ -615,53 +486,51 @@ class _DetailSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 760),
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: _DS.canvas,
-                borderRadius: BorderRadius.circular(_DS.rXl),
-                border: Border.all(color: _DS.hairlineSoft),
-              ),
-              child: Row(children: [
-                Container(width: 56, height: 56, decoration: const BoxDecoration(color: _DS.hairlineSoft, shape: BoxShape.circle)),
-                const SizedBox(width: 14),
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _box(140, 14),
-                  const SizedBox(height: 8),
-                  _box(90, 11),
-                ]),
-              ]),
-            ),
-            const SizedBox(height: 16),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              _box(90, 28, r: 99),
-              _box(70, 28, r: 99),
-              _box(80, 28, r: 99),
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: _DS.canvas,
+            borderRadius: BorderRadius.circular(_DS.rLg),
+            border: Border.all(color: _DS.hairlineSoft),
+          ),
+          child: Row(children: [
+            Container(width: 52, height: 52, decoration: const BoxDecoration(color: _DS.hairlineSoft, shape: BoxShape.circle)),
+            const SizedBox(width: 14),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _box(180, 14),
+              const SizedBox(height: 8),
+              _box(110, 11),
             ]),
-            const SizedBox(height: 16),
-            Wrap(spacing: 10, runSpacing: 10, children: [
-              for (var i = 0; i < 4; i++)
-                SizedBox(
-                  width: (MediaQuery.of(context).size.width - 80) / 4,
-                  child: Container(
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: _DS.canvas,
-                      borderRadius: BorderRadius.circular(_DS.rXl),
-                      border: Border.all(color: _DS.hairlineSoft),
-                    ),
+          ]),
+        ),
+        const SizedBox(height: 16),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          _box(90, 26, r: 99),
+          _box(70, 26, r: 99),
+          _box(80, 26, r: 99),
+        ]),
+        const SizedBox(height: 16),
+        LayoutBuilder(builder: (_, box) {
+          final w = (box.maxWidth - 30) / 4;
+          return Wrap(spacing: 10, runSpacing: 10, children: [
+            for (var i = 0; i < 4; i++)
+              SizedBox(
+                width: w,
+                child: Container(
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: _DS.canvas,
+                    borderRadius: BorderRadius.circular(_DS.rLg),
+                    border: Border.all(color: _DS.hairlineSoft),
                   ),
                 ),
-            ]),
-          ],
-        ),
-      ),
+              ),
+          ]);
+        }),
+      ],
     );
   }
 }
@@ -693,7 +562,7 @@ class _DeleteConfirmDialog extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 const Expanded(
-                  child: Text('Excluir cliente', style: TextStyle(fontSize: 17, color: _DS.ink)),
+                  child: Text('Excluir cliente', style: TextStyle(fontSize: 17, color: _DS.ink, fontWeight: FontWeight.w600)),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, size: 18, color: _DS.stone),
@@ -847,7 +716,6 @@ class _CustomerFormModalState extends State<_CustomerFormModal> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               Row(children: [
                 Container(
                   width: 40,
@@ -862,7 +730,7 @@ class _CustomerFormModalState extends State<_CustomerFormModal> {
                 Expanded(
                   child: Text(
                     _isEdit ? 'Editar cliente' : 'Novo cliente',
-                    style: const TextStyle(fontSize: 18, color: _DS.ink),
+                    style: const TextStyle(fontSize: 18, color: _DS.ink, fontWeight: FontWeight.w600),
                   ),
                 ),
                 IconButton(
@@ -876,7 +744,6 @@ class _CustomerFormModalState extends State<_CustomerFormModal> {
                 style: const TextStyle(fontSize: 13, color: _DS.steel),
               ),
               const SizedBox(height: 20),
-              // Form
               Expanded(
                 child: SingleChildScrollView(
                   child: Column(
@@ -884,11 +751,7 @@ class _CustomerFormModalState extends State<_CustomerFormModal> {
                     children: [
                       const _SectionLabel('Informações pessoais'),
                       const SizedBox(height: 10),
-                      _LabeledField(
-                        label: 'Nome *',
-                        controller: _nameCtrl,
-                        hint: 'Nome completo',
-                      ),
+                      _LabeledField(label: 'Nome *', controller: _nameCtrl, hint: 'Nome completo'),
                       const SizedBox(height: 10),
                       _LabeledField(
                         label: 'Telefone',
@@ -902,11 +765,7 @@ class _CustomerFormModalState extends State<_CustomerFormModal> {
                       Row(children: [
                         Expanded(
                           flex: 3,
-                          child: _LabeledField(
-                            label: 'Rua / Avenida',
-                            controller: _streetCtrl,
-                            hint: 'Rua das Flores',
-                          ),
+                          child: _LabeledField(label: 'Rua / Avenida', controller: _streetCtrl, hint: 'Rua das Flores'),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -919,35 +778,18 @@ class _CustomerFormModalState extends State<_CustomerFormModal> {
                         ),
                       ]),
                       const SizedBox(height: 10),
-                      _LabeledField(
-                        label: 'Complemento',
-                        controller: _complementCtrl,
-                        hint: 'Apto 42',
-                      ),
+                      _LabeledField(label: 'Complemento', controller: _complementCtrl, hint: 'Apto 42'),
                       const SizedBox(height: 10),
-                      _LabeledField(
-                        label: 'Bairro',
-                        controller: _neighborhoodCtrl,
-                        hint: 'Centro',
-                      ),
+                      _LabeledField(label: 'Bairro', controller: _neighborhoodCtrl, hint: 'Centro'),
                       const SizedBox(height: 10),
                       Row(children: [
                         Expanded(
                           flex: 3,
-                          child: _LabeledField(
-                            label: 'Cidade',
-                            controller: _cityCtrl,
-                            hint: 'São Paulo',
-                          ),
+                          child: _LabeledField(label: 'Cidade', controller: _cityCtrl, hint: 'São Paulo'),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: _LabeledField(
-                            label: 'UF',
-                            controller: _stateCtrl,
-                            hint: 'SP',
-                            maxLength: 2,
-                          ),
+                          child: _LabeledField(label: 'UF', controller: _stateCtrl, hint: 'SP', maxLength: 2),
                         ),
                       ]),
                       const SizedBox(height: 10),
@@ -1028,7 +870,7 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(fontSize: 12, color: _DS.stone, letterSpacing: 0.4),
+      style: const TextStyle(fontSize: 11, color: _DS.stone, letterSpacing: 0.4, fontWeight: FontWeight.w600),
     );
   }
 }
