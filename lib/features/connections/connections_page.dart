@@ -129,6 +129,24 @@ IconData _integrationIcon(String? integration) {
   }
 }
 
+String _sanitizeInstanceName(String input) {
+  const replacements = {
+    'á': 'a', 'à': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a',
+    'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+    'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
+    'ó': 'o', 'ò': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
+    'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
+    'ç': 'c', 'ñ': 'n',
+  };
+  var s = input.toLowerCase();
+  for (final entry in replacements.entries) {
+    s = s.replaceAll(entry.key, entry.value);
+  }
+  s = s.replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+  s = s.replaceAll(RegExp(r'^-+|-+$'), '');
+  return s;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 class ConnectionsPage extends StatefulWidget {
@@ -267,7 +285,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   }
 
   void _createConnection(CompaniesModel company) {
-    final slug = company.name!.toLowerCase().replaceAll(' ', '_');
+    final slug = _sanitizeInstanceName(company.name!);
     final state = _ctrl.stateFindAll.value;
     final existing = state is SuccessState ? (state.data as List<ConnectionsModel>).map((c) => c.instanceName ?? '').toList() : <String>[];
     showDialog(
