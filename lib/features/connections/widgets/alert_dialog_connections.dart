@@ -59,6 +59,24 @@ String _randomDescription() {
   return opts[Random().nextInt(opts.length)];
 }
 
+String _sanitizeInstanceName(String input) {
+  const replacements = {
+    'á': 'a', 'à': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a',
+    'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+    'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
+    'ó': 'o', 'ò': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
+    'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
+    'ç': 'c', 'ñ': 'n',
+  };
+  var s = input.toLowerCase();
+  for (final entry in replacements.entries) {
+    s = s.replaceAll(entry.key, entry.value);
+  }
+  s = s.replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+  s = s.replaceAll(RegExp(r'^-+|-+$'), '');
+  return s;
+}
+
 // ─── Dialog ───────────────────────────────────────────────────────────────────
 
 class AlertDialogConnections extends StatefulWidget {
@@ -251,7 +269,7 @@ class _AlertDialogConnectionsState extends State<AlertDialogConnections> with Ti
   void _submit() {
     setState(() => _nameTouched = true);
     if (!_formKey.currentState!.validate()) return;
-    _instanceName = _nameCtrl.text.trim();
+    _instanceName = _sanitizeInstanceName(_nameCtrl.text.trim());
     final desc = _descCtrl.text.trim().isEmpty ? _randomDescription() : _descCtrl.text.trim();
     widget.controller.create(
       ConnectionsModel.fromJson({

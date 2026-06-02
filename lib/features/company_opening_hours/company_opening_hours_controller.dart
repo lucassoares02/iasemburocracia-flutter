@@ -49,7 +49,7 @@ class CompanyOpeningHoursController extends BaseController<CompanyOpeningHoursMo
   }
   Future<void> update(CompanyOpeningHoursModel data) async => runWithState(
         () => company_opening_hoursUsecase.update(data),
-        stateCreate,
+        stateUpdate,
         additionalAction: () {
           findAll();
         },
