@@ -28,7 +28,9 @@ class ClientModel extends ClientEntity {
     city = json['city'];
     state = json['state'];
     zipCode = json['zip_code'];
-    createdAt = json['created_at'] != null ? DateTime.tryParse(json['created_at']) : null;
+    createdAt = json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'])
+        : null;
   }
 
   Map<String, dynamic> toJson() => {
@@ -88,6 +90,7 @@ class OrderItemModel extends OrderItemEntity {
 class OrderModel extends OrderEntity {
   OrderModel.fromJson(Map<String, dynamic> json) {
     id = json['id'];
+    tag = json['tag']?.toString();
     companyId = json['company_id'];
     clientId = json['client_id'];
     clientName = json['client_name'];
@@ -110,11 +113,17 @@ class OrderModel extends OrderEntity {
     }
     cancelReason = json['cancel_reason'];
     unreadMessages = _toInt(json['unread_messages_count']) ?? 0;
-    createdAt = json['created_at'] != null ? DateTime.tryParse(json['created_at']) : null;
-    updatedAt = json['updated_at'] != null ? DateTime.tryParse(json['updated_at']) : null;
+    createdAt = json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'])
+        : null;
+    updatedAt = json['updated_at'] != null
+        ? DateTime.tryParse(json['updated_at'])
+        : null;
     final rawItems = json['items'];
     if (rawItems is List) {
-      items = rawItems.map((e) => OrderItemModel.fromJson(e as Map<String, dynamic>)).toList();
+      items = rawItems
+          .map((e) => OrderItemModel.fromJson(e as Map<String, dynamic>))
+          .toList();
     } else {
       items = [];
     }
@@ -122,6 +131,7 @@ class OrderModel extends OrderEntity {
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        'tag': tag,
         'company_id': companyId,
         'client_id': clientId,
         'status': status,
@@ -140,5 +150,10 @@ class OrderSummaryModel extends OrderSummaryEntity {
           inProgress: int.tryParse(json['in_progress']?.toString() ?? '0') ?? 0,
           completed: int.tryParse(json['completed']?.toString() ?? '0') ?? 0,
           cancelled: int.tryParse(json['cancelled']?.toString() ?? '0') ?? 0,
+          todayValue: _toDouble(json['today_value']) ?? 0,
+          totalValue: _toDouble(json['total_value']) ?? 0,
+          inProgressValue: _toDouble(json['in_progress_value']) ?? 0,
+          completedValue: _toDouble(json['completed_value']) ?? 0,
+          cancelledValue: _toDouble(json['cancelled_value']) ?? 0,
         );
 }

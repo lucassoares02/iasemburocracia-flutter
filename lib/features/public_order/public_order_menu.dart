@@ -63,6 +63,25 @@ class _MenuScreenState extends State<_MenuScreen> {
     });
   }
 
+  /// Copia o link público do cardápio e confirma com uma snackbar.
+  void _shareMenuLink() {
+    final companyId = widget.data.company.id;
+    if (companyId == null) return;
+    final url = '${Uri.base.origin}/order?company=$companyId';
+    Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: _DS.ink,
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          'Link do cardápio copiado! 🔗',
+          style: TextStyle(color: Colors.white),
+        ),
+      ),
+    );
+  }
+
   void _exitSearchMode() {
     final term = _query;
     final count = term.length >= 2 ? _allItems.where((e) => _matches(e.item, term)).length : 0;
@@ -345,6 +364,18 @@ class _MenuScreenState extends State<_MenuScreen> {
                         productsCount: _totalItemsCount,
                         promotionsCount: widget.data.promotions.length,
                         onSearch: _enterSearchMode,
+                        onShare: _shareMenuLink,
+                        onTapInfo: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => _CompanyDetailsPage(
+                              data: widget.data,
+                              cartQtyOf: _cartQty,
+                              onTapProduct: (item) => _showDetailSheet(context, item, _cartQty(item.id ?? -1)),
+                              onAddProduct: (item) => _quickAdd(context, item),
+                              onRemoveProduct: (item) => widget.onDecrement(item),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -513,8 +544,10 @@ class _MenuScreenState extends State<_MenuScreen> {
         promo: promo,
         brandColor: widget.brandColor,
         onAdd: (qty, notes) {
-          widget.onAddPromotion(promo, quantity: qty, notes: notes);
+          // Fecha este sheet ANTES de iniciar o fluxo de opções do combo, senão
+          // o pop fecharia a folha de opções recém-aberta.
           Navigator.pop(context);
+          widget.onAddPromotion(promo, quantity: qty, notes: notes);
         },
       ),
     );
@@ -2148,6 +2181,8 @@ class _HeroBanner extends StatelessWidget {
   final int productsCount;
   final int promotionsCount;
   final VoidCallback onSearch;
+  final VoidCallback onTapInfo;
+  final VoidCallback onShare;
 
   const _HeroBanner({
     required this.bannerUrl,
@@ -2160,6 +2195,8 @@ class _HeroBanner extends StatelessWidget {
     required this.productsCount,
     required this.promotionsCount,
     required this.onSearch,
+    required this.onTapInfo,
+    required this.onShare,
   });
 
   @override
@@ -2215,13 +2252,21 @@ class _HeroBanner extends StatelessWidget {
                     ),
                   ),
 
-                // Topo direito: tempo médio de preparo (só o número)
-                if (avgPrepMinutes != null && avgPrepMinutes! > 0)
-                  Positioned(
-                    top: 16,
-                    right: 16,
-                    child: _PrepTimeBadge(minutes: avgPrepMinutes!),
+                // Topo direito: tempo médio de preparo + compartilhar link
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (avgPrepMinutes != null && avgPrepMinutes! > 0) ...[
+                        _PrepTimeBadge(minutes: avgPrepMinutes!),
+                        const SizedBox(width: 8),
+                      ],
+                      _BannerShareButton(onTap: onShare),
+                    ],
                   ),
+                ),
 
                 Positioned(
                   left: 16,
@@ -2230,60 +2275,81 @@ class _HeroBanner extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      _CompanyLogoBadge(
-                        logoUrl: logoUrl,
-                        companyName: companyName,
-                        brandColor: brandColor,
-                        size: 56,
-                      ),
-                      const SizedBox(width: 12),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
+                        // Toque na logo/nome abre os detalhes do restaurante.
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: onTapInfo,
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Flexible(
-                                  child: Text(
-                                    companyName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: _DSx.text(
-                                      size: 20,
-                                      weight: FontWeight.w700,
-                                      color: Colors.white,
-                                      height: 1.15,
-                                      letterSpacing: -0.2,
-                                    ).copyWith(
-                                      shadows: const [
-                                        Shadow(blurRadius: 6, color: Colors.black38),
+                                _CompanyLogoBadge(
+                                  logoUrl: logoUrl,
+                                  companyName: companyName,
+                                  brandColor: brandColor,
+                                  size: 56,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              companyName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: _DSx.text(
+                                                size: 20,
+                                                weight: FontWeight.w700,
+                                                color: Colors.white,
+                                                height: 1.15,
+                                                letterSpacing: -0.2,
+                                              ).copyWith(
+                                                shadows: const [
+                                                  Shadow(blurRadius: 6, color: Colors.black38),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          if (isOpen) ...[
+                                            const SizedBox(width: 8),
+                                            const _OpenPulseDot(),
+                                          ],
+                                          const SizedBox(width: 6),
+                                          Icon(
+                                            Icons.chevron_right_rounded,
+                                            size: 20,
+                                            color: Colors.white.withValues(alpha: 0.85),
+                                          ),
+                                        ],
+                                      ),
+                                      if (hasDesc) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          description!,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: _DSx.text(
+                                            size: 12,
+                                            weight: FontWeight.w500,
+                                            color: Colors.white.withValues(alpha: 0.88),
+                                            height: 1.3,
+                                          ),
+                                        ),
                                       ],
-                                    ),
+                                    ],
                                   ),
                                 ),
-                                if (isOpen) ...[
-                                  const SizedBox(width: 8),
-                                  const _OpenPulseDot(),
-                                ],
                               ],
                             ),
-                            if (hasDesc) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                description!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: _DSx.text(
-                                  size: 12,
-                                  weight: FontWeight.w500,
-                                  color: Colors.white.withValues(alpha: 0.88),
-                                  height: 1.3,
-                                ),
-                              ),
-                            ],
-                          ],
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -2474,6 +2540,37 @@ class _BannerSearchButton extends StatelessWidget {
             border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
           ),
           child: const Icon(Icons.search_rounded, size: 18, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
+
+/// Botão circular no topo do banner para compartilhar (copiar) o link do
+/// cardápio. Mesmo estilo translúcido do botão de busca.
+class _BannerShareButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _BannerShareButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Tooltip(
+          message: 'Compartilhar link do cardápio',
+          child: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+            ),
+            child: const Icon(Icons.share_rounded, size: 18, color: Colors.white),
+          ),
         ),
       ),
     );
@@ -3661,11 +3758,17 @@ class _ProductDetailSheet extends StatefulWidget {
   final Color brandColor;
   final int initialQty;
   final void Function(int qty, String? notes, List<_PubCartOption> options) onAdd;
+  // Modo "somente opções": usado para coletar as opções de um item dentro de um
+  // combo. Esconde o seletor de quantidade e o botão confirma sem preço.
+  final bool optionsOnly;
+  final String? confirmLabel;
   const _ProductDetailSheet({
     required this.item,
     required this.brandColor,
     required this.initialQty,
     required this.onAdd,
+    this.optionsOnly = false,
+    this.confirmLabel,
   });
 
   @override
@@ -4014,47 +4117,49 @@ class _ProductDetailSheetState extends State<_ProductDetailSheet> {
         top: false,
         child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-              decoration: BoxDecoration(
-                color: _DS.surface,
-                borderRadius: BorderRadius.circular(99),
-                border: Border.all(color: _DS.hairline),
-              ),
-              child: Row(
-                children: [
-                  _qtyBtn(
-                    icon: Icons.remove,
-                    onTap: () {
-                      if (_qty > 1) setState(() => _qty--);
-                    },
-                    enabled: _qty > 1,
-                  ),
-                  SizedBox(
-                    width: 36,
-                    child: Center(
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 150),
-                        child: Text(
-                          '$_qty',
-                          key: ValueKey(_qty),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: _DS.ink,
+            if (!widget.optionsOnly) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _DS.surface,
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(color: _DS.hairline),
+                ),
+                child: Row(
+                  children: [
+                    _qtyBtn(
+                      icon: Icons.remove,
+                      onTap: () {
+                        if (_qty > 1) setState(() => _qty--);
+                      },
+                      enabled: _qty > 1,
+                    ),
+                    SizedBox(
+                      width: 36,
+                      child: Center(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 150),
+                          child: Text(
+                            '$_qty',
+                            key: ValueKey(_qty),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: _DS.ink,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  _qtyBtn(
-                    icon: Icons.add,
-                    onTap: () => setState(() => _qty++),
-                    brand: brand,
-                  ),
-                ],
+                    _qtyBtn(
+                      icon: Icons.add,
+                      onTap: () => setState(() => _qty++),
+                      brand: brand,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: SizedBox(
                 height: 52,
@@ -4081,7 +4186,9 @@ class _ProductDetailSheetState extends State<_ProductDetailSheet> {
                     shape: const StadiumBorder(),
                   ),
                   child: Text(
-                    'Adicionar · ${_currFmt.format(((item.price ?? 0) + _extraPerUnit) * _qty)}',
+                    widget.optionsOnly
+                        ? (widget.confirmLabel ?? 'Confirmar opções')
+                        : 'Adicionar · ${_currFmt.format(((item.price ?? 0) + _extraPerUnit) * _qty)}',
                     style: const TextStyle(
                       fontSize: 14,
                     ),
@@ -5177,7 +5284,7 @@ class _ActiveOrderBannerState extends State<_ActiveOrderBanner> with SingleTicke
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        '#${order.id}',
+                        order.tag ?? '#${order.id}',
                         style: const TextStyle(fontSize: 12, color: _DS.stone),
                       ),
                     ],

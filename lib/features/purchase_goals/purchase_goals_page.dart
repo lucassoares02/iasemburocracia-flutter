@@ -343,15 +343,20 @@ class _GoalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _DS.canvas,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onEdit,
         borderRadius: BorderRadius.circular(_DS.rXl),
-        border: Border.all(color: _DS.hairline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        child: Ink(
+          decoration: BoxDecoration(
+            color: _DS.canvas,
+            borderRadius: BorderRadius.circular(_DS.rXl),
+            border: Border.all(color: _DS.hairline),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(_DS.s4, _DS.s4, _DS.s3, _DS.s3),
             child: Row(
@@ -433,11 +438,6 @@ class _GoalCard extends StatelessWidget {
                   onChanged: (_) => onToggle(),
                 ),
                 IconButton(
-                  tooltip: 'Editar',
-                  icon: const Icon(LucideIcons.pencil, size: 16, color: _DS.steel),
-                  onPressed: onEdit,
-                ),
-                IconButton(
                   tooltip: 'Excluir',
                   icon: const Icon(LucideIcons.trash2, size: 16, color: _DS.danger),
                   onPressed: onDelete,
@@ -476,7 +476,9 @@ class _GoalCard extends StatelessWidget {
                 ],
               ),
             ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -597,7 +599,7 @@ class _GoalEditorDialogState extends State<_GoalEditorDialog> {
       elevation: 0,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       child: Container(
-        width: 580,
+        width: 720,
         constraints: const BoxConstraints(maxHeight: 760),
         decoration: BoxDecoration(
           color: _DS.canvas,

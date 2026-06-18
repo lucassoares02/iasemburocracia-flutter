@@ -199,7 +199,7 @@ class _HistoryCard extends StatelessWidget {
                         Row(
                           children: [
                             Text(
-                              'Pedido #${order.id}',
+                              'Pedido ${order.tag ?? '#${order.id}'}',
                               style: const TextStyle(
                                 fontSize: 13,
                                 color: _DS.ink,

@@ -19,10 +19,19 @@ class CompaniesModel extends CompaniesEntity {
     aiName = json['ai_name'];
     aiGender = json['ai_gender'];
     aiPersonality = json['ai_personality'];
+    customAiPersonalities = json['custom_ai_personalities'] != null
+        ? List<Map<String, dynamic>>.from(
+            (json['custom_ai_personalities'] as List).map((e) => Map<String, dynamic>.from(e as Map)))
+        : null;
     cuisineType = json['cuisine_type'];
     dietaryRestrictions = json['dietary_restrictions'] != null
         ? List<String>.from(json['dietary_restrictions'] as List)
         : null;
+    customDietaryRestrictions = json['custom_dietary_restrictions'] != null
+        ? List<String>.from(json['custom_dietary_restrictions'] as List)
+        : null;
+    acceptsDelivery = json['accepts_delivery'] as bool? ?? true;
+    acceptsPickup = json['accepts_pickup'] as bool? ?? true;
     maxDistanceMetersDelivery = json['max_distance_meters_delivery'] is int
         ? json['max_distance_meters_delivery'] as int
         : int.tryParse('${json['max_distance_meters_delivery']}');
@@ -48,8 +57,12 @@ class CompaniesModel extends CompaniesEntity {
       'ai_name': aiName,
       'ai_gender': aiGender,
       'ai_personality': aiPersonality,
+      'custom_ai_personalities': customAiPersonalities,
       'cuisine_type': cuisineType,
       'dietary_restrictions': dietaryRestrictions,
+      'custom_dietary_restrictions': customDietaryRestrictions,
+      'accepts_delivery': acceptsDelivery,
+      'accepts_pickup': acceptsPickup,
       'max_distance_meters_delivery': maxDistanceMetersDelivery,
       'kilometer_price': kilometerPrice,
       'max_distance_meters_free_delivery': maxDistanceMetersFreeDelivery,

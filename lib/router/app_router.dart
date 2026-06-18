@@ -6,6 +6,7 @@ import 'package:portal_assoc/features/auth/presentation/auth_page.dart';
 import 'package:portal_assoc/features/companies/companies_page.dart';
 import 'package:portal_assoc/features/customers/customers_page.dart';
 import 'package:portal_assoc/features/home/home_page.dart';
+import 'package:portal_assoc/features/marketplace/marketplace_page.dart';
 import 'package:portal_assoc/features/orders/orders_page.dart';
 import 'package:portal_assoc/features/payment_methods/payment_methods_page.dart';
 import 'package:portal_assoc/features/public_order/public_order_page.dart';
@@ -38,10 +39,18 @@ GoRouter appRouter(AuthProvider authProvider) {
       GoRoute(
         name: 'order',
         path: '/order',
-        builder: (context, state) => PublicOrderPage(
-          company: state.uri.queryParameters['company'],
-          phone: state.uri.queryParameters['phone'],
-        ),
+        builder: (context, state) {
+          final company = state.uri.queryParameters['company'];
+          // Sem empresa na URL → marketplace público de restaurantes;
+          // com empresa → cardápio público (estrutura atual preservada).
+          if (company == null || company.isEmpty) {
+            return const MarketplacePage();
+          }
+          return PublicOrderPage(
+            company: company,
+            phone: state.uri.queryParameters['phone'],
+          );
+        },
       ),
       GoRoute(
         name: 'register',

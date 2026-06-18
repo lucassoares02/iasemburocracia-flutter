@@ -379,7 +379,7 @@ class _CompanyOpeningHoursPageState extends State<CompanyOpeningHoursPage> with 
                           ),
                           const SizedBox(width: _DS.s2),
                           ValueListenableBuilder(
-                            valueListenable: controller.stateCreate,
+                            valueListenable: isEditing ? controller.stateUpdate : controller.stateCreate,
                             builder: (context, value, _) => Opacity(
                               opacity: canSave ? 1 : 0.5,
                               child: IgnorePointer(

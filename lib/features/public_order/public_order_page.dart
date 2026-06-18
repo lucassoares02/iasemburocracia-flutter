@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:js_interop';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_multi_formatter/formatters/masked_input_formatter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:collection/collection.dart';
 import 'package:intl/intl.dart';
@@ -34,6 +37,7 @@ part 'public_order_history.dart';
 part 'public_order_reorder.dart';
 part 'public_order_tracking_session.dart';
 part 'public_order_delivery_type.dart';
+part 'public_order_details.dart';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 class _DS {
@@ -302,7 +306,10 @@ class _PubCartItem {
 
   double get subtotal => unitPrice * quantity;
   String get cartKey {
-    if (promotionId != null) return 'promo_$promotionId';
+    if (promotionId != null) {
+      final h = optionsHash ?? '';
+      return h.isEmpty ? 'promo_$promotionId' : 'promo_${promotionId}_$h';
+    }
     final h = optionsHash ?? '';
     return h.isEmpty ? 'item_$menuItemId' : 'item_${menuItemId}_$h';
   }
@@ -337,9 +344,32 @@ class _PubCartItem {
         'upsell_rule_id': upsellRuleId,
         'original_price': originalPrice,
         if (options.isNotEmpty) 'options': _groupOptionsForServer(),
+        // Combos: envia os itens internos com suas opções (agrupadas) para que a
+        // API valide as obrigatórias e persista a seleção por sub-item.
+        if (promotionId != null && promotionItems.isNotEmpty) 'promotion_items': _promotionItemsForServer(),
         if (purchaseGoalId != null) 'purchase_goal_id': purchaseGoalId,
         if (goalDiscountPercentage != null) 'goal_discount_percentage': goalDiscountPercentage,
       };
+
+  // Itens internos do combo com opções agrupadas no formato esperado pelo
+  // servidor: [{ menu_item_id, quantity, options: [{ group_id, options: [...] }] }]
+  List<Map<String, dynamic>> _promotionItemsForServer() {
+    return promotionItems.map((pi) {
+      final raw = (pi['options'] as List?) ?? const [];
+      final grouped = <int, Map<String, dynamic>>{};
+      for (final o in raw) {
+        final m = Map<String, dynamic>.from(o as Map);
+        final gid = (m['group_id'] as num?)?.toInt() ?? 0;
+        final entry = grouped.putIfAbsent(gid, () => {'group_id': m['group_id'], 'options': <Map<String, dynamic>>[]});
+        (entry['options'] as List).add({'option_id': m['option_id'], 'quantity': m['quantity'] ?? 1});
+      }
+      return {
+        'menu_item_id': pi['menu_item_id'],
+        'quantity': pi['quantity'] ?? 1,
+        if (grouped.isNotEmpty) 'options': grouped.values.toList(),
+      };
+    }).toList();
+  }
 
   // Server expects: [{ group_id, options: [{ option_id, quantity }] }]
   List<Map<String, dynamic>> _groupOptionsForServer() {
@@ -611,6 +641,14 @@ class _PublicOrderPageState extends State<PublicOrderPage> {
     _companyData = res.data as PublicCompanyPageModel;
     _selectedPaymentMethodId = null;
     _minOrderValue = _companyData?.companyPreferences?.minPriceOrder;
+
+    // Default do método de pedido conforme o que a empresa aceita.
+    final company = _companyData!.company;
+    if (!company.acceptsDelivery && company.acceptsPickup) {
+      _deliveryType = _DeliveryType.pickup;
+    } else if (company.acceptsDelivery && !company.acceptsPickup) {
+      _deliveryType = _DeliveryType.delivery;
+    }
 
     await _restoreCustomer(widget.phone);
 
@@ -890,33 +928,94 @@ class _PublicOrderPageState extends State<PublicOrderPage> {
     return parts.join('|');
   }
 
+  // Mantém a assinatura síncrona usada como callback; o fluxo real (que pode
+  // exigir seleção de opções) roda em background.
   void _addPromotionToCart(
     PublicPromotionModel promo, {
     int quantity = 1,
     String? notes,
   }) {
+    _startAddPromotion(promo, quantity, notes);
+  }
+
+  Future<void> _startAddPromotion(PublicPromotionModel promo, int quantity, String? notes) async {
+    final promoId = promo.id;
+    if (promoId == null || quantity <= 0) return;
+
+    // Itens do combo que possuem "Opções e adicionais" — o cliente precisa
+    // configurá-los (e selecionar as obrigatórias) antes de adicionar o combo.
+    final itemsWithOptions = (promo.items ?? []).where((it) => it.hasOptions && it.menuItemId != null).toList();
+
+    final perItemOptions = <int, List<_PubCartOption>>{};
+    for (final sub in itemsWithOptions) {
+      final opts = await _collectComboItemOptions(sub);
+      if (opts == null) return; // cliente fechou a seleção → cancela o combo
+      perItemOptions[sub.menuItemId!] = opts;
+    }
+    if (!mounted) return;
+    _commitPromotionToCart(promo, quantity, notes, perItemOptions);
+  }
+
+  /// Abre a seleção de "Opções e adicionais" de um item do combo (modo somente
+  /// opções, com validação das obrigatórias). Retorna as opções escolhidas ou
+  /// null se o cliente fechar sem confirmar.
+  Future<List<_PubCartOption>?> _collectComboItemOptions(PublicPromotionItemEntity sub) async {
+    final synthetic = PublicMenuItemModel.fromJson({
+      'id': sub.menuItemId,
+      'name': sub.name,
+      'price': sub.price ?? 0,
+      'image_url': sub.imageUrl,
+      'has_options': true,
+    });
+    List<_PubCartOption>? result;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProductDetailSheet(
+        item: synthetic,
+        brandColor: _parseBrandColor(_companyData?.company.brandColor),
+        initialQty: 1,
+        optionsOnly: true,
+        confirmLabel: 'Confirmar opções',
+        onAdd: (qty, notes, options) => result = options,
+      ),
+    );
+    return result;
+  }
+
+  void _commitPromotionToCart(
+    PublicPromotionModel promo,
+    int quantity,
+    String? notes,
+    Map<int, List<_PubCartOption>> perItemOptions,
+  ) {
     final promoId = promo.id;
     if (promoId == null || quantity <= 0) return;
     final cleanNotes = (notes ?? '').trim().isEmpty ? null : notes!.trim();
+    final optionsHash = _comboOptionsHash(perItemOptions);
     setState(() {
+      // Combos só agrupam quando têm a MESMA combinação de opções e notas.
       final idx = _cart.indexWhere(
-        (c) => c.promotionId == promoId && (c.notes ?? '') == (cleanNotes ?? ''),
+        (c) => c.promotionId == promoId && (c.notes ?? '') == (cleanNotes ?? '') && (c.optionsHash ?? '') == optionsHash,
       );
       if (idx >= 0) {
         _cart[idx].quantity += quantity;
       } else {
         final groupKey = 'promo_${promoId}_${DateTime.now().millisecondsSinceEpoch}';
-        final items = (promo.items ?? [])
-            .map((it) => {
-                  'menu_item_id': it.menuItemId,
-                  'name': it.name,
-                  'unit_price': it.price ?? 0,
-                  'quantity': it.quantity,
-                  'subtotal': (it.price ?? 0) * it.quantity,
-                  'promotion_id': promoId,
-                  'promotion_group_key': groupKey,
-                })
-            .toList();
+        final items = (promo.items ?? []).map((it) {
+          final opts = perItemOptions[it.menuItemId] ?? const <_PubCartOption>[];
+          return {
+            'menu_item_id': it.menuItemId,
+            'name': it.name,
+            'unit_price': it.price ?? 0,
+            'quantity': it.quantity,
+            'subtotal': (it.price ?? 0) * it.quantity,
+            'promotion_id': promoId,
+            'promotion_group_key': groupKey,
+            if (opts.isNotEmpty) 'options': opts.map((o) => o.toStorageJson()).toList(),
+          };
+        }).toList();
         _cart.add(_PubCartItem(
           promotionId: promoId,
           promotionGroupKey: groupKey,
@@ -926,10 +1025,25 @@ class _PublicOrderPageState extends State<PublicOrderPage> {
           notes: cleanNotes,
           imageUrl: promo.imageUrl,
           promotionItems: items,
+          optionsHash: optionsHash.isEmpty ? null : optionsHash,
         ));
       }
     });
     _saveCart();
+  }
+
+  // Assinatura determinística das opções de todos os itens de um combo, usada
+  // para diferenciar combos com seleções distintas no carrinho.
+  String _comboOptionsHash(Map<int, List<_PubCartOption>> perItemOptions) {
+    if (perItemOptions.isEmpty) return '';
+    final parts = <String>[];
+    final keys = perItemOptions.keys.toList()..sort();
+    for (final mid in keys) {
+      final opts = perItemOptions[mid] ?? const [];
+      final inner = opts.map((o) => '${o.groupId ?? 0}:${o.optionId ?? 0}x${o.quantity}').toList()..sort();
+      parts.add('$mid#${inner.join(',')}');
+    }
+    return parts.join('|');
   }
 
   void _updateCartQty(String cartKey, int qty) {
@@ -1124,8 +1238,44 @@ class _PublicOrderPageState extends State<PublicOrderPage> {
   Future<void> _quickAcceptGoalSuggestion() async {
     final s = _checkoutGoalSuggestion;
     if (s == null) return;
-    await _acceptGoalSuggestion(s, 1);
+    // Se o produto sugerido tem "Opções e adicionais", o cliente precisa
+    // selecioná-las (incluindo as obrigatórias) antes de adicionar.
+    if (s.hasOptions) {
+      await _openGoalSuggestionOptions(s, 1);
+    } else {
+      await _acceptGoalSuggestion(s, 1);
+    }
     await _fetchGoalSuggestion();
+  }
+
+  /// Abre a seleção de "Opções e adicionais" para uma sugestão de objetivo que
+  /// possui opções. Valida as obrigatórias (dentro do _ProductDetailSheet) e,
+  /// ao confirmar, adiciona ao carrinho preservando o desconto do objetivo.
+  /// Retorna true se o item foi adicionado.
+  Future<bool> _openGoalSuggestionOptions(PurchaseGoalSuggestionModel s, int qty) async {
+    final synthetic = PublicMenuItemModel.fromJson({
+      'id': s.productId,
+      'name': s.productName,
+      'price': s.finalPrice,
+      'image_url': s.productImageUrl,
+      'has_options': true,
+    });
+    var added = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProductDetailSheet(
+        item: synthetic,
+        brandColor: _parseBrandColor(_companyData?.company.brandColor),
+        initialQty: qty > 0 ? qty : 1,
+        onAdd: (q, notes, options) {
+          _acceptGoalSuggestion(s, q, notes: notes, options: options);
+          added = true;
+        },
+      ),
+    );
+    return added;
   }
 
   /// Acionado ao tocar no corpo do card: abre o bottom-sheet com detalhes.
@@ -1179,6 +1329,13 @@ class _PublicOrderPageState extends State<PublicOrderPage> {
           suggestion: suggestion,
           brandColor: brand,
           onAccept: (qty) async {
+            // Produto com "Opções e adicionais": fecha este sheet e abre a
+            // seleção de opções (com validação das obrigatórias) antes de add.
+            if (suggestion.hasOptions) {
+              Navigator.pop(context);
+              accepted = await _openGoalSuggestionOptions(suggestion, qty);
+              return false; // o pop já foi tratado manualmente acima
+            }
             accepted = await _acceptGoalSuggestion(suggestion, qty);
             return accepted;
           },
@@ -1191,24 +1348,37 @@ class _PublicOrderPageState extends State<PublicOrderPage> {
     return accepted;
   }
 
-  Future<bool> _acceptGoalSuggestion(PurchaseGoalSuggestionModel s, int qty) async {
+  Future<bool> _acceptGoalSuggestion(
+    PurchaseGoalSuggestionModel s,
+    int qty, {
+    String? notes,
+    List<_PubCartOption> options = const [],
+  }) async {
+    final extraPerUnit = options.fold<double>(0, (sum, o) => sum + o.additionalPrice * o.quantity);
+    final unitPrice = s.finalPrice + extraPerUnit;
+    final hash = _optionsHash(options);
+    final cleanNotes = (notes ?? '').trim().isEmpty ? null : notes!.trim();
     setState(() {
-      // Evita duplicar — se já existe no carrinho com o mesmo goal, incrementa qty
+      // Evita duplicar — mesmo goal + mesma combinação de opções incrementa qty
       final idx = _cart.indexWhere(
-        (c) => c.menuItemId == s.productId && c.purchaseGoalId == s.goalId,
+        (c) => c.menuItemId == s.productId && c.purchaseGoalId == s.goalId && (c.optionsHash ?? '') == hash,
       );
       if (idx >= 0) {
         _cart[idx].quantity += qty;
+        if (cleanNotes != null) _cart[idx].notes = cleanNotes;
       } else {
         _cart.add(_PubCartItem(
           menuItemId: s.productId,
           name: s.productName,
-          unitPrice: s.finalPrice,
+          unitPrice: unitPrice,
           quantity: qty,
+          notes: cleanNotes,
           imageUrl: s.productImageUrl,
           originalPrice: s.originalPrice,
           purchaseGoalId: s.goalId,
           goalDiscountPercentage: s.discountPercentage,
+          options: List<_PubCartOption>.from(options),
+          optionsHash: hash.isEmpty ? null : hash,
         ));
       }
       _goalExcludedProductIds.add(s.productId);
@@ -1793,6 +1963,8 @@ class _PublicOrderPageState extends State<PublicOrderPage> {
           onAddUpsell: _addUpsellToCart,
           deliveryType: _deliveryType,
           onDeliveryTypeChange: _setDeliveryType,
+          allowDelivery: _companyData?.company.acceptsDelivery ?? true,
+          allowPickup: _companyData?.company.acceptsPickup ?? true,
           companyAddress: _companyData?.companyAddress,
           companyName: _companyData?.company.name ?? '',
           avgPrepMinutes: _avgPrepFromMenu(_companyData),

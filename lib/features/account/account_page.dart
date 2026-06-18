@@ -74,16 +74,16 @@ class _AccountPageState extends State<AccountPage> {
                           setSharedPreferences(0);
                         },
                       ),
-                      ButtonSide(
-                          selected: selectedIndex == 1,
-                          description: "Minha empresa",
-                          icon: LucideIcons.store,
-                          onTap: () {
-                            setState(() {
-                              selectedIndex = 1;
-                            });
-                            setSharedPreferences(1);
-                          }),
+                      // ButtonSide(
+                      //     selected: selectedIndex == 1,
+                      //     description: "Minha empresa",
+                      //     icon: LucideIcons.store,
+                      //     onTap: () {
+                      //       setState(() {
+                      //         selectedIndex = 1;
+                      //       });
+                      //       setSharedPreferences(1);
+                      //     }),
                       ButtonSide(
                           selected: false,
                           description: "Sair",

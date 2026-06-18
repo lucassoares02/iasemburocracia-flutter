@@ -28,6 +28,8 @@ class PublicCompanyModel extends PublicCompanyEntity {
     logoUrl = json['logo_url'];
     bannerUrl = json['banner_url'];
     brandColor = json['brand_color'];
+    acceptsDelivery = json['accepts_delivery'] as bool? ?? true;
+    acceptsPickup = json['accepts_pickup'] as bool? ?? true;
   }
 }
 
@@ -44,6 +46,9 @@ class PublicMenuItemModel extends PublicMenuItemEntity {
     prepTimeMinutes = json['prep_time_minutes'];
     featured = json['featured'] as bool? ?? false;
     hasOptions = json['has_options'] as bool? ?? false;
+    salesCount = json['sales_count'] is int
+        ? json['sales_count'] as int
+        : int.tryParse('${json['sales_count']}') ?? 0;
   }
 }
 
@@ -66,6 +71,7 @@ class PublicPromotionItemModel extends PublicPromotionItemEntity {
     price = _toDouble(json['price']);
     quantity = json['quantity'] ?? 1;
     subtotal = _toDouble(json['subtotal']);
+    hasOptions = json['has_options'] as bool? ?? false;
   }
 }
 
@@ -413,6 +419,7 @@ class PublicOrderStatusHistoryModel {
 
 class PublicOrderDetailModel {
   final int id;
+  final String? tag;
   final int? companyId;
   final int status;
   final String? notes;
@@ -426,6 +433,7 @@ class PublicOrderDetailModel {
   final String deliveryType; // 'delivery' | 'pickup'
   final double? companyLat;
   final double? companyLng;
+  final String? companyAddress;
   final DateTime? scheduledFor;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -442,6 +450,7 @@ class PublicOrderDetailModel {
 
   PublicOrderDetailModel({
     required this.id,
+    required this.tag,
     required this.companyId,
     required this.status,
     required this.notes,
@@ -455,6 +464,7 @@ class PublicOrderDetailModel {
     required this.deliveryType,
     required this.companyLat,
     required this.companyLng,
+    required this.companyAddress,
     required this.scheduledFor,
     required this.createdAt,
     required this.updatedAt,
@@ -488,6 +498,7 @@ class PublicOrderDetailModel {
 
     return PublicOrderDetailModel(
       id: (j['id'] as num).toInt(),
+      tag: j['tag']?.toString(),
       companyId: (j['company_id'] as num?)?.toInt(),
       status: parseStatus(j['status']),
       notes: j['notes']?.toString(),
@@ -501,6 +512,7 @@ class PublicOrderDetailModel {
       deliveryType: _parseDeliveryType(j['delivery_type']),
       companyLat: _toDouble(j['company_lat']),
       companyLng: _toDouble(j['company_lng']),
+      companyAddress: j['company_address']?.toString(),
       scheduledFor: parseDate(j['scheduled_for']),
       createdAt: parseDate(j['created_at']),
       updatedAt: parseDate(j['updated_at']),

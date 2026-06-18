@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:currency_text_input_formatter/currency_text_input_formatter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,16 +10,19 @@ import 'package:flutter_multi_formatter/formatters/masked_input_formatter.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:portal_assoc/core/providers/onboarding_provider.dart';
 import 'package:portal_assoc/core/state/app_state.dart';
-import 'package:portal_assoc/core/utils/spacing.dart';
-import 'package:portal_assoc/features/account/widgets/base_account.dart';
 import 'package:portal_assoc/features/companies/companies_controller.dart';
 import 'package:portal_assoc/features/companies/companies_model.dart';
 import 'package:portal_assoc/features/companies/companies_repository.dart';
+import 'package:portal_assoc/features/companies/widgets/banner_crop_dialog.dart';
 import 'package:portal_assoc/shared/widgets/custom_input.dart';
+import 'package:portal_assoc/shared/widgets/upload_validation.dart';
 import 'package:portal_assoc/shared/widgets/loading_container.dart';
 import 'package:provider/provider.dart';
 
-const List<Color> _kSwatches = [
+// Cor de ação padrão da plataforma. A cor da marca da empresa NÃO é usada
+// nesta tela (será aplicada apenas no cardápio público, em outro momento).
+const Color _kPlatformInk = Color(0xFF1C1C1E);
+const List<Color> _kBrandSwatches = [
   Color(0xFF1C1C1E),
   Color(0xFF4262FF),
   Color(0xFF00B473),
@@ -26,19 +33,50 @@ const List<Color> _kSwatches = [
   Color(0xFFF59E0B),
 ];
 
+/// Seções renderizadas pela tela. Os controladores são sempre carregados por
+/// inteiro do servidor (o autosave envia o modelo completo), então cada seção
+/// edita apenas seus campos sem afetar os demais.
+enum BusinessSection {
+  /// Identidade visual, dados da empresa e preferências operacionais.
+  info,
+
+  /// Inteligência Artificial & Cardápio (atendente virtual, tipo de cozinha,
+  /// restrições alimentares).
+  ai,
+}
+
 class BusinessInformations extends StatefulWidget {
-  const BusinessInformations({super.key, required this.controller});
+  const BusinessInformations({
+    super.key,
+    required this.controller,
+    this.section = BusinessSection.info,
+  });
 
   final CompaniesController controller;
+  final BusinessSection section;
 
   @override
   State<BusinessInformations> createState() => _BusinessInformationsState();
 }
 
+enum _SaveStatus { idle, pending, saving, saved, error }
+
 class _BusinessInformationsState extends State<BusinessInformations> {
-  bool _isEditing = false;
-  final _formKey = GlobalKey<FormState>();
+  // ── Design tokens (consistência visual da tela) ──────────────────────────
+  static const _surface = Color(0xFFF7F8FA);
+  static const _canvas = Colors.white;
+  static const _hairlineSoft = Color(0xFFEEF0F3);
+  static const _ink = Color(0xFF1C1C1E);
+  static const _slate = Color(0xFF555A6A);
+  static const _steel = Color(0xFF6B6F7E);
+
   final _repo = CompaniesRepository();
+
+  // Controladores são inicializados uma única vez a partir do servidor; depois
+  // a UI é a fonte da verdade e salva automaticamente (sem botão "Salvar").
+  bool _loaded = false;
+  Timer? _debounce;
+  _SaveStatus _saveStatus = _SaveStatus.idle;
 
   late TextEditingController _nameCtrl;
   late TextEditingController _descCtrl;
@@ -47,7 +85,6 @@ class _BusinessInformationsState extends State<BusinessInformations> {
   late TextEditingController _bannerUrlCtrl;
   late TextEditingController _hexCtrl; // RRGGBB without #
 
-  Color? _selectedColor;
   bool _uploadingLogo = false;
   bool _uploadingBanner = false;
 
@@ -59,9 +96,24 @@ class _BusinessInformationsState extends State<BusinessInformations> {
   late TextEditingController _maxDistanceFreeDeliveryCtrl;
   late TextEditingController _minPriceOrderCtrl;
   late TextEditingController _minTaxDeliveryCtrl;
+  // Métodos de pedido aceitos pela empresa.
+  bool _acceptsDelivery = true;
+  bool _acceptsPickup = true;
   String? _aiGender;
+  // Restrições selecionadas (padrão + personalizadas). É exatamente o que é
+  // persistido na coluna `dietary_restrictions`.
   final Set<String> _dietaryRestrictions = {};
+  // Restrições personalizadas disponíveis na sessão (selecionadas ou não),
+  // preservando a ordem de inserção. As padrão vêm de [_kDietaryOptions].
+  final List<String> _customDietaryRestrictions = [];
+  late TextEditingController _customDietaryCtrl;
+  String? _dietaryError;
+  // Controla a seção (campo de texto) que abre ao clicar em "Adicionar".
+  bool _showCustomDietaryInput = false;
   String? _selectedPersonalityPreset;
+  // Catálogo de personalidades personalizadas (título + prompt), persistido em
+  // `custom_ai_personalities`.
+  final List<({String label, String prompt})> _customPersonalities = [];
 
   CompaniesModel? _company;
 
@@ -83,6 +135,7 @@ class _BusinessInformationsState extends State<BusinessInformations> {
     _maxDistanceFreeDeliveryCtrl = TextEditingController();
     _minPriceOrderCtrl = TextEditingController();
     _minTaxDeliveryCtrl = TextEditingController();
+    _customDietaryCtrl = TextEditingController();
   }
 
   @override
@@ -101,114 +154,273 @@ class _BusinessInformationsState extends State<BusinessInformations> {
     _maxDistanceFreeDeliveryCtrl.dispose();
     _minPriceOrderCtrl.dispose();
     _minTaxDeliveryCtrl.dispose();
+    _customDietaryCtrl.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
   void _initCtrls(CompaniesModel c) {
     _company = c;
+    _acceptsDelivery = c.acceptsDelivery ?? true;
+    _acceptsPickup = c.acceptsPickup ?? true;
     _nameCtrl.text = c.name ?? '';
     _descCtrl.text = c.description ?? '';
     _phoneCtrl.text = c.phone ?? '';
     _logoUrlCtrl.text = c.logoUrl ?? '';
     _bannerUrlCtrl.text = c.bannerUrl ?? '';
-    _selectedColor = _parseHex(c.brandColor);
     _hexCtrl.text = (c.brandColor ?? '').replaceAll('#', '');
     _aiNameCtrl.text = c.aiName ?? '';
     _aiPersonalityCtrl.text = c.aiPersonality ?? '';
+    _customPersonalities
+      ..clear()
+      ..addAll((c.customAiPersonalities ?? const <Map<String, dynamic>>[])
+          .map((e) => (
+                label: (e['label'] ?? '').toString(),
+                prompt: (e['prompt'] ?? '').toString()
+              ))
+          .where((p) => p.label.isNotEmpty && p.prompt.isNotEmpty));
+    _selectedPersonalityPreset =
+        _matchPersonalityLabel(_aiPersonalityCtrl.text);
     _cuisineTypeCtrl.text = c.cuisineType ?? '';
     _aiGender = c.aiGender;
+    final loadedRestrictions = c.dietaryRestrictions ?? const <String>[];
     _dietaryRestrictions
       ..clear()
-      ..addAll(c.dietaryRestrictions ?? []);
-    _maxDistanceDeliveryCtrl.text = c.maxDistanceMetersDelivery?.toString() ?? '';
-    _kilometerPriceCtrl.text = c.kilometerPrice?.toStringAsFixed(2) ?? '';
-    _maxDistanceFreeDeliveryCtrl.text = c.maxDistanceMetersFreeDelivery?.toString() ?? '';
-    _minPriceOrderCtrl.text = c.minPriceOrder?.toStringAsFixed(2) ?? '';
-    _minTaxDeliveryCtrl.text = c.minTaxDelivery?.toStringAsFixed(2) ?? '';
-  }
-
-  Color? _parseHex(String? hex) {
-    if (hex == null || hex.isEmpty) return null;
-    final h = hex.replaceAll('#', '').trim();
-    if (h.length != 6) return null;
-    try {
-      return Color(int.parse('FF$h', radix: 16));
-    } catch (_) {
-      return null;
+      ..addAll(loadedRestrictions);
+    // O catálogo de personalizadas vem da coluna própria e persiste mesmo
+    // desmarcado. Como fallback (dados antigos, sem a coluna), recupera as
+    // selecionadas que não pertencem ao conjunto padrão.
+    final catalog = <String>[
+      ...(c.customDietaryRestrictions ?? const <String>[])
+    ];
+    for (final r in loadedRestrictions) {
+      if (!_isPredefinedRestriction(r) &&
+          catalog.every((c) => c.toLowerCase() != r.toLowerCase())) {
+        catalog.add(r);
+      }
     }
+    _customDietaryRestrictions
+      ..clear()
+      ..addAll(catalog);
+    _customDietaryCtrl.clear();
+    _dietaryError = null;
+    _showCustomDietaryInput = false;
+    _maxDistanceDeliveryCtrl.text =
+        c.maxDistanceMetersDelivery?.toString() ?? '';
+    _kilometerPriceCtrl.text = _formatPrice(c.kilometerPrice);
+    _maxDistanceFreeDeliveryCtrl.text =
+        c.maxDistanceMetersFreeDelivery?.toString() ?? '';
+    _minPriceOrderCtrl.text = _formatPrice(c.minPriceOrder);
+    _minTaxDeliveryCtrl.text = _formatPrice(c.minTaxDelivery);
   }
 
-  // Effective brand color: live selection while editing, saved color otherwise,
-  // theme primary as final fallback.
-  Color get _actionColor {
-    final live = _isEditing ? _selectedColor : _parseHex(_company?.brandColor);
-    return live ?? Theme.of(context).primaryColor;
+  // ── Máscara de moeda (R$) ────────────────────────────────────────────────
+  static final _priceFormat =
+      NumberFormat.currency(locale: 'pt_BR', symbol: r'R$ ', decimalDigits: 2);
+  CurrencyTextInputFormatter _currencyMask() =>
+      CurrencyTextInputFormatter.currency(
+          locale: 'pt_BR',
+          symbol: r'R$ ',
+          decimalDigits: 2,
+          enableNegative: false);
+
+  String _formatPrice(double? v) => v == null ? '' : _priceFormat.format(v);
+
+  // Extrai o valor numérico de um texto mascarado ("R$ 1.234,56" → 1234.56).
+  double? _parsePrice(String text) {
+    final digits = text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return null;
+    return int.parse(digits) / 100;
   }
 
-  String _colorHex(Color c) => c.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase();
+  // Cor de ação fixa (preto da plataforma).
+  Color get _actionColor => _kPlatformInk;
 
-  void _toggleEdit() => setState(() {
-        _isEditing = !_isEditing;
-        if (!_isEditing && _company != null) _initCtrls(_company!);
-      });
-
-  Future<void> _save() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    final hex = _hexCtrl.text.trim();
-    final updatedCompany = CompaniesModel.fromJson({
+  // ── Edição fluida: autosave ──────────────────────────────────────────────
+  // Monta o modelo atual a partir de TODOS os controladores/estados da UI.
+  CompaniesModel _currentModel() {
+    final brandColor = _normalizedBrandColor();
+    return CompaniesModel.fromJson({
       'id': _company?.id,
       'name': _nameCtrl.text.trim(),
       'description': _descCtrl.text.trim(),
       'phone': _phoneCtrl.text.trim(),
       'status': _company?.status,
-      'logo_url': _logoUrlCtrl.text.trim().isEmpty ? null : _logoUrlCtrl.text.trim(),
-      'brand_color': hex.isEmpty ? null : '#${hex.toUpperCase()}',
-      'banner_url': _bannerUrlCtrl.text.trim().isEmpty ? null : _bannerUrlCtrl.text.trim(),
-      'ai_name': _aiNameCtrl.text.trim().isEmpty ? null : _aiNameCtrl.text.trim(),
+      'logo_url':
+          _logoUrlCtrl.text.trim().isEmpty ? null : _logoUrlCtrl.text.trim(),
+      'brand_color': brandColor,
+      'banner_url': _bannerUrlCtrl.text.trim().isEmpty
+          ? null
+          : _bannerUrlCtrl.text.trim(),
+      'ai_name':
+          _aiNameCtrl.text.trim().isEmpty ? null : _aiNameCtrl.text.trim(),
       'ai_gender': _aiGender,
-      'ai_personality': _aiPersonalityCtrl.text.trim().isEmpty ? null : _aiPersonalityCtrl.text.trim(),
-      'cuisine_type': _cuisineTypeCtrl.text.trim().isEmpty ? null : _cuisineTypeCtrl.text.trim(),
-      'dietary_restrictions': _dietaryRestrictions.isEmpty ? null : _dietaryRestrictions.toList(),
-      'max_distance_meters_delivery': int.tryParse(_maxDistanceDeliveryCtrl.text.trim()),
-      'kilometer_price': double.tryParse(_kilometerPriceCtrl.text.trim().replaceAll(',', '.')),
-      'max_distance_meters_free_delivery': int.tryParse(_maxDistanceFreeDeliveryCtrl.text.trim()),
-      'min_price_order': double.tryParse(_minPriceOrderCtrl.text.trim().replaceAll(',', '.')),
-      'min_tax_delivery': double.tryParse(_minTaxDeliveryCtrl.text.trim().replaceAll(',', '.')),
+      'ai_personality': _aiPersonalityCtrl.text.trim().isEmpty
+          ? null
+          : _aiPersonalityCtrl.text.trim(),
+      'custom_ai_personalities': _customPersonalities.isEmpty
+          ? null
+          : _customPersonalities
+              .map((p) => {'label': p.label, 'prompt': p.prompt})
+              .toList(),
+      'cuisine_type': _cuisineTypeCtrl.text.trim().isEmpty
+          ? null
+          : _cuisineTypeCtrl.text.trim(),
+      'dietary_restrictions':
+          _dietaryRestrictions.isEmpty ? null : _dietaryRestrictions.toList(),
+      'custom_dietary_restrictions': _customDietaryRestrictions.isEmpty
+          ? null
+          : List<String>.from(_customDietaryRestrictions),
+      'accepts_delivery': _acceptsDelivery,
+      'accepts_pickup': _acceptsPickup,
+      'max_distance_meters_delivery':
+          int.tryParse(_maxDistanceDeliveryCtrl.text.trim()),
+      'kilometer_price': _parsePrice(_kilometerPriceCtrl.text),
+      'max_distance_meters_free_delivery':
+          int.tryParse(_maxDistanceFreeDeliveryCtrl.text.trim()),
+      'min_price_order': _parsePrice(_minPriceOrderCtrl.text),
+      'min_tax_delivery': _parsePrice(_minTaxDeliveryCtrl.text),
     });
-    await widget.controller.update(updatedCompany);
-    if (!mounted) return;
-    context.read<OnboardingProvider>().refresh(silent: true);
-    setState(() => _isEditing = false);
+  }
+
+  // Agenda salvamento após o usuário parar de digitar (campos de texto).
+  void _scheduleAutosave() {
+    _debounce?.cancel();
+    if (_saveStatus != _SaveStatus.pending) {
+      setState(() => _saveStatus = _SaveStatus.pending);
+    }
+    _debounce = Timer(const Duration(milliseconds: 900), _autosaveNow);
+  }
+
+  // Salva imediatamente (ações discretas: chips, gênero, presets, imagens).
+  Future<void> _autosaveNow() async {
+    _debounce?.cancel();
+    if (_company == null) return;
+    final model = _currentModel();
+    _company = model;
+    setState(() => _saveStatus = _SaveStatus.saving);
+    try {
+      // Salva direto pelo repositório para não recarregar a tela (sem flicker).
+      await _repo.update(model);
+      if (!mounted) return;
+      context.read<OnboardingProvider>().refresh(silent: true);
+      setState(() => _saveStatus = _SaveStatus.saved);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saveStatus = _SaveStatus.error);
+    }
+  }
+
+  Color? _parseHexColor(String? hex) {
+    final h = (hex ?? '').replaceAll('#', '').trim();
+    if (h.length != 6 || !RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(h)) {
+      return null;
+    }
+    return Color(int.parse('FF$h', radix: 16));
+  }
+
+  String _colorHex(Color color) {
+    return color
+        .toARGB32()
+        .toRadixString(16)
+        .padLeft(8, '0')
+        .substring(2)
+        .toUpperCase();
+  }
+
+  String? _normalizedBrandColor() {
+    final hex = _hexCtrl.text.replaceAll('#', '').trim();
+    if (hex.isEmpty) return null;
+    if (hex.length == 6 && RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hex)) {
+      return '#${hex.toUpperCase()}';
+    }
+    return _company?.brandColor;
+  }
+
+  void _selectBrandColor(Color color) {
+    setState(() => _hexCtrl.text = _colorHex(color));
+    _autosaveNow();
+  }
+
+  void _onBrandHexChanged(String value) {
+    setState(() {});
+    final hex = value.trim();
+    if (hex.isEmpty || hex.length == 6) {
+      _scheduleAutosave();
+    }
   }
 
   Future<void> _uploadImage({required bool isLogo}) async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+    final result = await FilePicker.platform
+        .pickFiles(type: FileType.image, withData: true);
     if (result == null || result.files.isEmpty) return;
     final f = result.files.first;
     if (f.bytes == null) return;
 
-    final mime = switch ((f.extension ?? 'jpg').toLowerCase()) {
+    // Validação preventiva (tamanho/formato) ANTES do recorte/upload — evita o
+    // 413 do backend e informa o tamanho encontrado vs. o limite.
+    final validation = validateImageUpload(f);
+    if (!validation.ok) {
+      if (!mounted) return;
+      await showUploadErrorDialog(
+        context,
+        title: validation.title!,
+        message: validation.message!,
+        fileBytes: validation.fileBytes,
+      );
+      return;
+    }
+
+    Uint8List bytes = f.bytes!;
+    String filename = f.name;
+    String mime = switch ((f.extension ?? 'jpg').toLowerCase()) {
       'png' => 'image/png',
       'webp' => 'image/webp',
       _ => 'image/jpeg',
     };
 
+    // O banner é exibido em 21:9 — abre o editor de recorte para o usuário
+    // ajustar a imagem antes de enviar.
+    if (!isLogo) {
+      if (!mounted) return;
+      final cropped = await showBannerCropDialog(context, bytes);
+      if (cropped == null) return; // usuário cancelou
+      bytes = cropped;
+      filename = 'banner.png';
+      mime = 'image/png';
+    }
+
     setState(() => isLogo ? _uploadingLogo = true : _uploadingBanner = true);
     try {
       final resp = await _repo.uploadCompanyImage(
-        f.bytes!,
-        f.name,
+        bytes,
+        filename,
         mime,
         type: isLogo ? 'logo' : 'banner',
       );
       if (resp.success && resp.data != null) {
         final url = resp.data['url'] as String?;
         if (url != null) {
-          setState(() => isLogo ? _logoUrlCtrl.text = url : _bannerUrlCtrl.text = url);
+          setState(() =>
+              isLogo ? _logoUrlCtrl.text = url : _bannerUrlCtrl.text = url);
+          await _autosaveNow(); // salva a nova imagem imediatamente
         }
+      } else if (mounted) {
+        // Falha do backend (inclui 413 mapeado pelo HttpService) — feedback
+        // amigável, sem stacktrace ou termos técnicos.
+        await showUploadErrorDialog(
+          context,
+          title: 'Não foi possível enviar a imagem',
+          message: resp.message.isNotEmpty
+              ? resp.message
+              : 'Falha no upload da imagem. Tente novamente.',
+        );
       }
     } finally {
-      setState(() => isLogo ? _uploadingLogo = false : _uploadingBanner = false);
+      if (mounted) {
+        setState(
+            () => isLogo ? _uploadingLogo = false : _uploadingBanner = false);
+      }
     }
   }
 
@@ -216,238 +428,255 @@ class _BusinessInformationsState extends State<BusinessInformations> {
 
   @override
   Widget build(BuildContext context) {
-    return BaseAccount(
-      title: '',
-      child: Expanded(
-        child: Column(
-          children: [
-            Expanded(
-              child: ValueListenableBuilder(
-                valueListenable: widget.controller.stateFind,
-                builder: (context, state, _) {
-                  if (state is LoadingState) return _skeleton();
-                  if (state is ErrorState) return _errorView(state.message);
-                  if (state is SuccessState) {
-                    final c = state.data as CompaniesModel;
-                    if (_company == null || !_isEditing) _initCtrls(c);
-                    return _content(c);
-                  }
-                  return const SizedBox.shrink();
-                },
-              ),
-            ),
-          ],
-        ),
+    // Sem BaseAccount: o conteúdo encosta no topo e no menu lateral (sem o
+    // padding/título extras que o BaseAccount impunha).
+    return Expanded(
+      child: ValueListenableBuilder(
+        valueListenable: widget.controller.stateFind,
+        builder: (context, state, _) {
+          if (state is LoadingState) return _skeleton();
+          if (state is ErrorState) return _errorView(state.message);
+          if (state is SuccessState) {
+            final c = state.data as CompaniesModel;
+            // Inicializa os campos uma única vez; depois a UI é a fonte da
+            // verdade (autosave) e não sobrescreve o que está sendo editado.
+            if (!_loaded) {
+              _initCtrls(c);
+              _loaded = true;
+            }
+            return _content(c);
+          }
+          return const SizedBox.shrink();
+        },
       ),
     );
   }
 
   Widget _content(CompaniesModel c) {
-    return Column(
-      children: [
-        Expanded(
-          child: ScrollConfiguration(
-            behavior: const ScrollBehavior().copyWith(scrollbars: false),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeader(c),
-                    const Spacing(),
-                    _buildInfoSection(c),
-                    const SizedBox(height: 24),
-                    _buildOperationalPreferencesSection(c),
-                    const SizedBox(height: 24),
-                    _buildAiSection(c),
-                    const SizedBox(height: 24),
-                    _buildBrandingSection(),
-                    const SizedBox(height: 24),
-                    _buildPreviewCard(c),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ─── Header ──────────────────────────────────────────────────────────────────
-
-  Widget _buildHeader(CompaniesModel c) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
+    return Container(
+      color: _surface,
+      child: ScrollConfiguration(
+        behavior: const ScrollBehavior().copyWith(scrollbars: false),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(right: 4, bottom: 24),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Informações da Empresa',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontSize: 20,
-                      letterSpacing: -0.5,
-                      color: const Color(0xFF09090B),
-                    ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: _saveIndicator(),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Gerencie os dados principais e identidade visual da empresa.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: 13,
-                      height: 1.4,
-                      color: const Color(0xFF71717A),
-                    ),
-              ),
-              const SizedBox(height: 10),
-              _statusBadge(c.status ?? false),
+              const SizedBox(height: 12),
+              if (widget.section == BusinessSection.info) ...[
+                _buildBrandingSection(),
+                const SizedBox(height: 16),
+                _buildInfoSection(c),
+                const SizedBox(height: 16),
+                _buildOrderMethodsSection(c),
+                const SizedBox(height: 16),
+                _buildOperationalPreferencesSection(c),
+              ] else ...[
+                _buildAiSection(c),
+              ],
             ],
           ),
         ),
-        const SizedBox(width: 16),
-        Row(
-          children: [
-            if (_isEditing) ...[
-              OutlinedButton(
-                onPressed: _toggleEdit,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF1C1C1E),
-                  side: const BorderSide(color: Color(0xFFE0E2E8)),
-                  shape: const StadiumBorder(),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
-                child: const Text('Cancelar'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _save,
-                icon: const Icon(LucideIcons.check, size: 16),
-                label: const Text('Salvar'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF1C1C1E),
-                  foregroundColor: Colors.white,
-                  shape: const StadiumBorder(),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  textStyle: const TextStyle(
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ] else
-              FilledButton.icon(
-                onPressed: _toggleEdit,
-                icon: const Icon(LucideIcons.edit2, size: 16),
-                label: const Text('Editar'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF1C1C1E),
-                  foregroundColor: Colors.white,
-                  shape: const StadiumBorder(),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  textStyle: const TextStyle(
-                    fontSize: 14,
-                  ),
-                ),
-              ),
+      ),
+    );
+  }
+
+  // ── Indicador de autosave (substitui os botões Editar/Salvar) ────────────
+  Widget _saveIndicator() {
+    final (IconData icon, String label, Color color) = switch (_saveStatus) {
+      _SaveStatus.idle => (LucideIcons.cloud, 'Tudo certo', _steel),
+      _SaveStatus.pending => (LucideIcons.pencil, 'Editando…', _steel),
+      _SaveStatus.saving => (LucideIcons.loader, 'Salvando…', _steel),
+      _SaveStatus.saved => (
+          LucideIcons.checkCircle2,
+          'Salvo',
+          const Color(0xFF00B473)
+        ),
+      _SaveStatus.error => (
+          LucideIcons.alertCircle,
+          'Erro ao salvar',
+          const Color(0xFFE53935)
+        ),
+    };
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _canvas,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: _hairlineSoft),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_saveStatus == _SaveStatus.saving)
+            const SizedBox(
+              width: 13,
+              height: 13,
+              child: CircularProgressIndicator(strokeWidth: 2, color: _steel),
+            )
+          else
+            Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 12, color: color, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  // ─── Dados da empresa ─────────────────────────────────────────────────────
+
+  Widget _buildInfoSection(CompaniesModel c) {
+    return _section(
+      icon: LucideIcons.building2,
+      title: 'Dados da empresa',
+      subtitle: 'Informações principais exibidas aos seus clientes.',
+      children: [
+        _field(
+          ctrl: _nameCtrl,
+          label: 'Nome',
+          icon: LucideIcons.store,
+          maxLength: 100,
+        ),
+        _field(
+          ctrl: _phoneCtrl,
+          label: 'Telefone',
+          icon: LucideIcons.phone,
+          keyboardType: TextInputType.phone,
+          formatters: [
+            MaskedInputFormatter('(##) #####-####',
+                allowedCharMatcher: RegExp(r'[0-9]')),
           ],
+        ),
+        _field(
+          ctrl: _descCtrl,
+          label: 'Descrição',
+          icon: LucideIcons.alignLeft,
+          maxLength: 500,
+          maxLines: 4,
         ),
       ],
     );
   }
 
-  // ─── Basic info section ───────────────────────────────────────────────────────
-
-  Widget _buildInfoSection(CompaniesModel c) {
-    return _sectionCard(children: [
-      _infoRow(
-        icon: Icons.badge_outlined,
-        label: 'Nome',
-        value: c.name ?? 'Não informado',
-        ctrl: _nameCtrl,
-        maxLength: 100,
-        validator: (v) => (v == null || v.isEmpty) ? 'Nome é obrigatório' : null,
-      ),
-      _infoRow(
-        icon: Icons.phone_outlined,
-        label: 'Telefone',
-        value: c.phone ?? 'Não informado',
-        ctrl: _phoneCtrl,
-        keyboardType: TextInputType.phone,
-        inputFormatters: [
-          MaskedInputFormatter(
-            '(##) #####-####',
-            allowedCharMatcher: RegExp(r'[0-9]'),
-          ),
-        ],
-      ),
-      _infoRow(
-        icon: Icons.description_outlined,
-        label: 'Descrição',
-        value: c.description ?? 'Não informado',
-        ctrl: _descCtrl,
-        maxLength: 500,
-        maxLines: 5,
-        keyboardType: TextInputType.text,
-      ),
-    ]);
+  // Campo de texto que dispara autosave (debounced) ao alterar.
+  Widget _field({
+    required TextEditingController ctrl,
+    required String label,
+    IconData? icon,
+    int maxLines = 1,
+    int maxLength = 100,
+    TextInputType? keyboardType,
+    List<TextInputFormatter>? formatters,
+    String? helper,
+  }) {
+    return CustomInput(
+      controller: ctrl,
+      title: label,
+      icon: icon,
+      maxLines: maxLines,
+      maxLenght: maxLength,
+      keyboardType: keyboardType,
+      inputFormatters: formatters,
+      helperText: helper,
+      onChanged: (_) => _scheduleAutosave(),
+    );
   }
 
-  Widget _infoRow({
+  // ─── Métodos de pedido aceitos ───────────────────────────────────────────────
+
+  Widget _buildOrderMethodsSection(CompaniesModel c) {
+    return _section(
+      icon: LucideIcons.shoppingBag,
+      title: 'Métodos de pedido',
+      subtitle: 'Defina como os clientes podem receber os pedidos.',
+      children: [
+        _orderMethodTile(
+          icon: LucideIcons.truck,
+          label: 'Delivery',
+          description: 'Entrega no endereço do cliente.',
+          value: _acceptsDelivery,
+          onChanged: (v) {
+            setState(() => _acceptsDelivery = v);
+            _autosaveNow();
+          },
+        ),
+        const SizedBox(height: 8),
+        _orderMethodTile(
+          icon: LucideIcons.store,
+          label: 'Retirada',
+          description: 'Cliente retira o pedido no local.',
+          value: _acceptsPickup,
+          onChanged: (v) {
+            setState(() => _acceptsPickup = v);
+            _autosaveNow();
+          },
+        ),
+        if (!_acceptsDelivery && !_acceptsPickup) ...[
+          const SizedBox(height: 10),
+          const Row(
+            children: [
+              Icon(LucideIcons.alertTriangle, size: 15, color: Color(0xFFE53935)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Habilite ao menos um método para receber pedidos.',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      color: Color(0xFFE53935),
+                      fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _orderMethodTile({
     required IconData icon,
     required String label,
-    required String value,
-    TextEditingController? ctrl,
-    TextInputType? keyboardType,
-    List<TextInputFormatter>? inputFormatters,
-    int? maxLength,
-    int? maxLines,
-    String? Function(String?)? validator,
+    required String description,
+    required bool value,
+    required ValueChanged<bool> onChanged,
   }) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _hairlineSoft),
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF4F4F5),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 16, color: const Color(0xFF6B6F7E)),
-          ),
-          const SizedBox(width: 16),
+          Icon(icon, size: 18, color: value ? _ink : _steel),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
-                      ),
-                ),
-                const SizedBox(height: 8),
-                if (_isEditing && ctrl != null)
-                  CustomInput(
-                    controller: ctrl,
-                    keyboardType: keyboardType,
-                    validator: validator,
-                    maxLenght: maxLength,
-                    maxLines: maxLines ?? 1,
-                    inputFormatters: inputFormatters,
-                  )
-                else
-                  Text(
-                    value,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(),
-                  ),
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 14,
+                        color: _ink,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 1),
+                Text(description,
+                    style: const TextStyle(fontSize: 12, color: _steel)),
               ],
             ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: _kPlatformInk,
           ),
         ],
       ),
@@ -457,61 +686,81 @@ class _BusinessInformationsState extends State<BusinessInformations> {
   // ─── AI & Cardápio section ───────────────────────────────────────────────────
 
   Widget _buildOperationalPreferencesSection(CompaniesModel c) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return _section(
+      icon: LucideIcons.truck,
+      title: 'Preferências operacionais',
+      subtitle: 'Regras de entrega, distância e valores mínimos.',
       children: [
-        _sectionTitle('Preferências operacionais'),
-        const SizedBox(height: 16),
-        _sectionCard(
-          children: [
-            _infoRow(
-              icon: LucideIcons.mapPin,
-              label: 'Distância máxima de entrega (metros)',
-              value: _distanceValue(c.maxDistanceMetersDelivery),
-              ctrl: _maxDistanceDeliveryCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 7,
-            ),
-            _infoRow(
-              icon: LucideIcons.gauge,
-              label: 'Preço por quilômetro (R\$)',
-              value: _currencyValue(c.kilometerPrice),
+        _fieldGrid([
+          _field(
+            ctrl: _maxDistanceDeliveryCtrl,
+            label: 'Distância máx. de entrega',
+            icon: LucideIcons.mapPin,
+            keyboardType: TextInputType.number,
+            formatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 7,
+            helper: 'Em metros',
+          ),
+          _field(
+            ctrl: _maxDistanceFreeDeliveryCtrl,
+            label: 'Distância p/ frete grátis',
+            icon: LucideIcons.gift,
+            keyboardType: TextInputType.number,
+            formatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 7,
+            helper: 'Em metros',
+          ),
+          _priceField(
               ctrl: _kilometerPriceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-              maxLength: 10,
-            ),
-            _infoRow(
-              icon: LucideIcons.truck,
-              label: 'Distância máxima para frete grátis (metros)',
-              value: _distanceValue(c.maxDistanceMetersFreeDelivery),
-              ctrl: _maxDistanceFreeDeliveryCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              maxLength: 7,
-            ),
-            _infoRow(
-              icon: LucideIcons.shoppingCart,
-              label: 'Pedido mínimo (R\$)',
-              value: _currencyValue(c.minPriceOrder),
+              label: 'Preço por quilômetro',
+              icon: LucideIcons.gauge),
+          _priceField(
               ctrl: _minPriceOrderCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-              maxLength: 10,
-            ),
-            _infoRow(
-              icon: LucideIcons.receipt,
-              label: 'Taxa mínima de entrega (R\$)',
-              value: _currencyValue(c.minTaxDelivery),
+              label: 'Pedido mínimo',
+              icon: LucideIcons.shoppingCart),
+          _priceField(
               ctrl: _minTaxDeliveryCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-              maxLength: 10,
-            ),
-          ],
-        ),
+              label: 'Taxa mínima de entrega',
+              icon: LucideIcons.receipt),
+        ]),
       ],
+    );
+  }
+
+  // Campo de preço com máscara de moeda (R$), autosave debounced.
+  Widget _priceField({
+    required TextEditingController ctrl,
+    required String label,
+    IconData? icon,
+  }) {
+    return CustomInput(
+      controller: ctrl,
+      title: label,
+      icon: icon,
+      maxLenght: 14,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      inputFormatters: [_currencyMask()],
+      onChanged: (_) => _scheduleAutosave(),
+    );
+  }
+
+  // Distribui os campos em 2 colunas no desktop e 1 coluna no mobile.
+  Widget _fieldGrid(List<Widget> fields) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 14.0;
+        final twoCols = constraints.maxWidth >= 520;
+        final itemWidth = twoCols
+            ? (constraints.maxWidth - spacing) / 2
+            : constraints.maxWidth;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final f in fields) SizedBox(width: itemWidth, child: f),
+          ],
+        );
+      },
     );
   }
 
@@ -565,683 +814,504 @@ class _BusinessInformationsState extends State<BusinessInformations> {
   ];
 
   Widget _buildAiSection(CompaniesModel c) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return _section(
+      icon: LucideIcons.bot,
+      title: 'Inteligência Artificial & Cardápio',
+      subtitle: 'Como o atendente virtual se apresenta e atende.',
       children: [
-        _sectionTitle('Inteligência Artificial & Cardápio'),
-        const SizedBox(height: 16),
-        _sectionCard(children: [
-          _infoRow(
-            icon: LucideIcons.bot,
-            label: 'Nome da IA',
-            value: c.aiName ?? 'Não informado',
-            ctrl: _aiNameCtrl,
-            maxLength: 100,
-          ),
-          _genderRow(c),
-          _personalityRow(c),
-          _infoRow(
-            icon: LucideIcons.utensils,
-            label: 'Tipo de culinária',
-            value: c.cuisineType ?? 'Não informado',
-            ctrl: _cuisineTypeCtrl,
-            maxLength: 100,
-          ),
-          _dietaryRow(c),
+        _fieldGrid([
+          _field(
+              ctrl: _aiNameCtrl,
+              label: 'Nome da IA',
+              icon: LucideIcons.sparkles,
+              maxLength: 100),
+          _field(
+              ctrl: _cuisineTypeCtrl,
+              label: 'Tipo de culinária',
+              icon: LucideIcons.utensils,
+              maxLength: 100),
         ]),
+        _genderRow(c),
+        const SizedBox(height: 8),
+        _personalityRow(c),
+        const SizedBox(height: 8),
+        _dietaryRow(c),
+      ],
+    );
+  }
+
+  // Rótulo de subcampo dentro de uma seção.
+  Widget _fieldLabel(IconData icon, String label) {
+    return Row(
+      children: [
+        Icon(icon, size: 15, color: _steel),
+        const SizedBox(width: 8),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 13, color: _slate, fontWeight: FontWeight.w500)),
       ],
     );
   }
 
   Widget _personalityRow(CompaniesModel c) {
-    final displayValue = _aiPersonalityCtrl.text.trim().isEmpty ? (c.aiPersonality ?? 'Não informado') : _aiPersonalityCtrl.text.trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel(LucideIcons.messageSquare, 'Personalidade da IA'),
+        const SizedBox(height: 10),
+        CustomInput(
+          controller: _aiPersonalityCtrl,
+          maxLenght: 500,
+          maxLines: 4,
+          keyboardType: TextInputType.text,
+          hint:
+              'Descreva o tom de voz do atendente ou escolha um preset abaixo',
+          floatingLabel: false,
+          onChanged: (_) => _scheduleAutosave(),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            ..._kPersonalityPresets.map((p) => _personalityChip(
+                label: p.label, prompt: p.prompt, custom: false)),
+            ..._customPersonalities.map((p) => _personalityChip(
+                label: p.label, prompt: p.prompt, custom: true)),
+            _addPersonalityButton(),
+          ],
+        ),
+      ],
+    );
+  }
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _brandingIcon(LucideIcons.messageSquare),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Personalidade da IA',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
-                      ),
-                ),
-                const SizedBox(height: 8),
-                if (_isEditing) ...[
-                  CustomInput(
-                    controller: _aiPersonalityCtrl,
-                    maxLenght: 500,
-                    maxLines: 4,
-                    keyboardType: TextInputType.text,
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _kPersonalityPresets.map((preset) {
-                      final selected = _selectedPersonalityPreset == preset.label;
-                      return ActionChip(
-                        avatar: Icon(
-                          LucideIcons.sparkles,
-                          size: 14,
-                          color: selected ? _actionColor : const Color(0xFF8E91A0),
-                        ),
-                        label: Text(
-                          preset.label,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: selected ? _actionColor : const Color(0xFF555A6A),
-                          ),
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _selectedPersonalityPreset = preset.label;
-                            _aiPersonalityCtrl.text = preset.prompt;
-                          });
-                        },
-                        shape: const StadiumBorder(),
-                        side: BorderSide(
-                          color: selected ? _actionColor.withValues(alpha: 0.35) : Colors.grey[300]!,
-                        ),
-                        backgroundColor: selected ? _actionColor.withValues(alpha: 0.12) : Colors.white,
-                        elevation: 0,
-                        pressElevation: 0,
-                      );
-                    }).toList(),
-                  ),
-                ] else
-                  Text(
-                    displayValue,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(),
-                  ),
-              ],
-            ),
-          ),
-        ],
+  // Chip de personalidade — preset padrão ou personalizada (removível).
+  // Ao tocar, aplica o prompt no campo e marca como selecionada.
+  Widget _personalityChip(
+      {required String label, required String prompt, required bool custom}) {
+    final selected = _selectedPersonalityPreset == label;
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      avatar: Icon(
+        LucideIcons.sparkles,
+        size: 14,
+        color: selected ? _actionColor : const Color(0xFF8E91A0),
+      ),
+      tooltip: custom ? 'Personalidade personalizada' : null,
+      showCheckmark: false,
+      onSelected: (_) {
+        setState(() {
+          _selectedPersonalityPreset = label;
+          _aiPersonalityCtrl.text = prompt;
+        });
+        _autosaveNow();
+      },
+      onDeleted: custom ? () => _removeCustomPersonality(label) : null,
+      deleteIcon: custom ? const Icon(LucideIcons.x, size: 13) : null,
+      deleteIconColor: selected ? _actionColor : Colors.grey[500],
+      selectedColor: _actionColor.withValues(alpha: 0.12),
+      labelStyle: TextStyle(
+        fontSize: 12,
+        color: selected ? _actionColor : _slate,
+        fontWeight: selected ? FontWeight.bold : FontWeight.w400,
+      ),
+      shape: const StadiumBorder(),
+      side: BorderSide(color: selected ? _actionColor : Colors.grey[300]!),
+      backgroundColor: _canvas,
+    );
+  }
+
+  // Botão (no fim da lista) que abre o diálogo de nova personalidade.
+  Widget _addPersonalityButton() {
+    return OutlinedButton.icon(
+      onPressed: _openAddPersonality,
+      icon: const Icon(LucideIcons.plus, size: 16),
+      label: const Text('Adicionar personalidade'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _actionColor,
+        side: BorderSide(color: _actionColor.withValues(alpha: 0.4)),
+        shape: const StadiumBorder(),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        textStyle: const TextStyle(fontSize: 13),
       ),
     );
   }
 
-  Widget _genderRow(CompaniesModel c) {
-    final displayValue = switch (c.aiGender) {
-      'masculino' => 'Masculino',
-      'feminino' => 'Feminino',
-      'neutro' => 'Neutro',
-      _ => 'Não informado',
-    };
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _brandingIcon(LucideIcons.user),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Gênero da IA',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
-                      ),
-                ),
-                const SizedBox(height: 8),
-                if (_isEditing)
-                  Wrap(
-                    spacing: 8,
-                    children: _kGenderOptions.map((opt) {
-                      final selected = _aiGender == opt.$1;
-                      return ChoiceChip(
-                        label: Text(opt.$2),
-                        selected: selected,
-                        onSelected: (_) => setState(() => _aiGender = opt.$1),
-                        selectedColor: _actionColor.withValues(alpha: 0.12),
-                        checkmarkColor: _actionColor,
-                        labelStyle: TextStyle(
-                          fontSize: 13,
-                          color: selected ? _actionColor : Colors.grey[700],
-                          fontWeight: selected ? FontWeight.bold : FontWeight.w400,
-                        ),
-                        shape: const StadiumBorder(),
-                        side: BorderSide(
-                          color: selected ? _actionColor : Colors.grey[300]!,
-                        ),
-                      );
-                    }).toList(),
-                  )
-                else
-                  Text(
-                    displayValue,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(),
-                  ),
-              ],
-            ),
-          ),
-        ],
+  // Retorna o label do preset/custom cujo prompt casa com [prompt], ou null.
+  String? _matchPersonalityLabel(String prompt) {
+    final p = prompt.trim();
+    if (p.isEmpty) return null;
+    for (final preset in _kPersonalityPresets) {
+      if (preset.prompt.trim() == p) return preset.label;
+    }
+    for (final c in _customPersonalities) {
+      if (c.prompt.trim() == p) return c.label;
+    }
+    return null;
+  }
+
+  Future<void> _openAddPersonality() async {
+    final result = await showDialog<({String label, String prompt})>(
+      context: context,
+      builder: (_) => _PersonalityDialog(
+        isDuplicateLabel: (label) {
+          final l = label.trim().toLowerCase();
+          return _kPersonalityPresets.any((p) => p.label.toLowerCase() == l) ||
+              _customPersonalities.any((p) => p.label.toLowerCase() == l);
+        },
       ),
+    );
+    if (result == null) return;
+    setState(() {
+      _customPersonalities.add(result);
+      _selectedPersonalityPreset = result.label; // já entra selecionada
+      _aiPersonalityCtrl.text = result.prompt;
+    });
+    await _autosaveNow(); // salva imediatamente
+  }
+
+  Future<void> _removeCustomPersonality(String label) async {
+    setState(() {
+      _customPersonalities.removeWhere((p) => p.label == label);
+      if (_selectedPersonalityPreset == label) {
+        _selectedPersonalityPreset = null;
+      }
+    });
+    await _autosaveNow();
+  }
+
+  Widget _genderRow(CompaniesModel c) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel(LucideIcons.user, 'Gênero da IA'),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          children: _kGenderOptions.map((opt) {
+            final selected = _aiGender == opt.$1;
+            return ChoiceChip(
+              label: Text(opt.$2),
+              selected: selected,
+              onSelected: (_) {
+                setState(() => _aiGender = opt.$1);
+                _autosaveNow();
+              },
+              selectedColor: _actionColor.withValues(alpha: 0.12),
+              checkmarkColor: _actionColor,
+              labelStyle: TextStyle(
+                fontSize: 13,
+                color: selected ? _actionColor : Colors.grey[700],
+                fontWeight: selected ? FontWeight.bold : FontWeight.w400,
+              ),
+              shape: const StadiumBorder(),
+              side: BorderSide(
+                  color: selected ? _actionColor : Colors.grey[300]!),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
   Widget _dietaryRow(CompaniesModel c) {
-    final displayValue = _dietaryRestrictions.isEmpty ? 'Nenhuma' : _dietaryRestrictions.join(', ');
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _brandingIcon(LucideIcons.leaf),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Restrições alimentares',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
-                      ),
-                ),
-                const SizedBox(height: 8),
-                if (_isEditing)
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: _kDietaryOptions.map((opt) {
-                      final selected = _dietaryRestrictions.contains(opt);
-                      return FilterChip(
-                        label: Text(opt),
-                        selected: selected,
-                        onSelected: (v) => setState(() {
-                          if (v) {
-                            _dietaryRestrictions.add(opt);
-                          } else {
-                            _dietaryRestrictions.remove(opt);
-                          }
-                        }),
-                        selectedColor: _actionColor.withValues(alpha: 0.12),
-                        checkmarkColor: _actionColor,
-                        labelStyle: TextStyle(
-                          fontSize: 12,
-                          color: selected ? _actionColor : Colors.grey[700],
-                          fontWeight: selected ? FontWeight.bold : FontWeight.w400,
-                        ),
-                        shape: const StadiumBorder(),
-                        side: BorderSide(
-                          color: selected ? _actionColor : Colors.grey[300]!,
-                        ),
-                        showCheckmark: true,
-                      );
-                    }).toList(),
-                  )
-                else
-                  Text(
-                    displayValue,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(),
-                  ),
-              ],
-            ),
-          ),
-        ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel(LucideIcons.leaf, 'Restrições alimentares'),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            ..._kDietaryOptions.map((opt) => _dietaryChip(opt, custom: false)),
+            ..._customDietaryRestrictions
+                .map((opt) => _dietaryChip(opt, custom: true)),
+            // Campo entra no lugar do botão (logo após a última restrição),
+            // voltando ao botão quando salva.
+            _showCustomDietaryInput
+                ? _customDietaryInput()
+                : _customDietaryAddButton(),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // Chip de restrição — padrão (não removível) ou personalizada (removível,
+  // marcada com o ícone de "faísca" e tooltip "Restrição personalizada").
+  Widget _dietaryChip(String opt, {required bool custom}) {
+    final selected = _dietaryRestrictions.contains(opt);
+    return FilterChip(
+      label: Text(opt),
+      selected: selected,
+      avatar: custom
+          ? Icon(
+              LucideIcons.sparkles,
+              size: 13,
+              color: selected ? _actionColor : const Color(0xFF8E91A0),
+            )
+          : null,
+      tooltip: custom ? 'Restrição personalizada' : null,
+      onSelected: (v) => _toggleDietary(opt, v),
+      // Apenas as personalizadas podem ser removidas.
+      onDeleted: custom ? () => _removeCustomDietary(opt) : null,
+      deleteIcon: custom ? const Icon(LucideIcons.x, size: 13) : null,
+      deleteIconColor: selected ? _actionColor : Colors.grey[500],
+      selectedColor: _actionColor.withValues(alpha: 0.12),
+      checkmarkColor: _actionColor,
+      // A faísca já identifica a personalizada; o checkmark fica só nas padrão.
+      showCheckmark: !custom,
+      labelStyle: TextStyle(
+        fontSize: 12,
+        color: selected ? _actionColor : Colors.grey[700],
+        fontWeight: selected ? FontWeight.bold : FontWeight.w400,
+      ),
+      shape: const StadiumBorder(),
+      side: BorderSide(
+        color: selected ? _actionColor : Colors.grey[300]!,
       ),
     );
   }
 
-  // ─── Branding section ─────────────────────────────────────────────────────────
+  // Botão que revela o campo de texto no seu próprio lugar. Único botão da
+  // seção; reaparece após salvar.
+  Widget _customDietaryAddButton() {
+    return OutlinedButton.icon(
+      onPressed: () => setState(() {
+        _showCustomDietaryInput = true;
+        _dietaryError = null;
+      }),
+      icon: const Icon(LucideIcons.plus, size: 16),
+      label: const Text('Adicionar restrição'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _actionColor,
+        side: BorderSide(color: _actionColor.withValues(alpha: 0.4)),
+        shape: const StadiumBorder(),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        textStyle: const TextStyle(fontSize: 13),
+      ),
+    );
+  }
+
+  // Campo de texto pequeno; ao pressionar Enter salva imediatamente.
+  Widget _customDietaryInput() {
+    return SizedBox(
+      width: 220,
+      child: TextField(
+        controller: _customDietaryCtrl,
+        autofocus: true,
+        textCapitalization: TextCapitalization.sentences,
+        textInputAction: TextInputAction.done,
+        maxLength: 60,
+        onChanged: (_) {
+          if (_dietaryError != null) setState(() => _dietaryError = null);
+        },
+        onSubmitted: (_) => _addCustomDietary(),
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          counterText: '',
+          hintText: 'Nome da restrição',
+          hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+          errorText: _dietaryError,
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey[300]!)),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey[300]!)),
+          focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: _actionColor, width: 2)),
+          filled: true,
+          fillColor: Colors.grey[50],
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          isDense: true,
+        ),
+      ),
+    );
+  }
+
+  // Verifica se [value] equivale a uma restrição padrão (case-insensitive).
+  bool _isPredefinedRestriction(String value) {
+    final v = value.trim().toLowerCase();
+    return _kDietaryOptions.any((o) => o.toLowerCase() == v);
+  }
+
+  // Retorna o rótulo já existente (padrão ou personalizado) que casa com
+  // [value] ignorando maiúsculas/minúsculas, ou null se não houver duplicata.
+  String? _findExistingRestriction(String value) {
+    final v = value.trim().toLowerCase();
+    for (final o in _kDietaryOptions) {
+      if (o.toLowerCase() == v) return o;
+    }
+    for (final o in _customDietaryRestrictions) {
+      if (o.toLowerCase() == v) return o;
+    }
+    return null;
+  }
+
+  // Persiste APENAS as restrições, imediatamente, sem exigir o "Salvar" do
+  // topo. Mescla sobre o último estado salvo da empresa (_company) para não
+  // gravar edições em andamento dos demais campos.
+  Future<void> _toggleDietary(String opt, bool selected) async {
+    setState(() {
+      if (selected) {
+        _dietaryRestrictions.add(opt);
+      } else {
+        _dietaryRestrictions.remove(opt);
+      }
+    });
+    await _autosaveNow();
+  }
+
+  Future<void> _addCustomDietary() async {
+    final raw = _customDietaryCtrl.text.trim();
+    if (raw.isEmpty) {
+      // Enter com campo vazio = cancela e volta a mostrar o botão.
+      setState(() {
+        _showCustomDietaryInput = false;
+        _customDietaryCtrl.clear();
+        _dietaryError = null;
+      });
+      return;
+    }
+    final existing = _findExistingRestriction(raw);
+    if (existing != null) {
+      setState(() => _dietaryError = '"$existing" já está na lista');
+      return;
+    }
+    setState(() {
+      _customDietaryRestrictions.add(raw);
+      _dietaryRestrictions.add(raw); // já entra selecionada
+      _customDietaryCtrl.clear();
+      _dietaryError = null;
+      _showCustomDietaryInput = false; // volta a mostrar o botão
+    });
+    await _autosaveNow(); // salva imediatamente no banco
+  }
+
+  Future<void> _removeCustomDietary(String value) async {
+    setState(() {
+      _customDietaryRestrictions.remove(value);
+      _dietaryRestrictions.remove(value);
+    });
+    await _autosaveNow();
+  }
+
+  // ─── Identidade visual ────────────────────────────────────────────────────
 
   Widget _buildBrandingSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return _section(
+      icon: LucideIcons.image,
+      title: 'Identidade Visual',
+      subtitle: 'Banner, logo e cor principal exibidos no seu cardápio.',
+      bodyPadding: EdgeInsets.zero,
       children: [
-        _sectionTitle('Identidade Visual'),
-        const SizedBox(height: 16),
-        _sectionCard(children: [
-          _logoRow(),
-          _colorRow(),
-          _bannerRow(),
-        ]),
+        _BrandingHeader(
+          logoUrl: _logoUrlCtrl.text.trim(),
+          bannerUrl: _bannerUrlCtrl.text.trim(),
+          name: _nameCtrl.text.trim(),
+          fallbackInitials: _getInitials(_nameCtrl.text),
+          uploadingLogo: _uploadingLogo,
+          uploadingBanner: _uploadingBanner,
+          onUploadLogo: () => _uploadImage(isLogo: true),
+          onRemoveLogo: () => _removeImage(isLogo: true),
+          onUploadBanner: () => _uploadImage(isLogo: false),
+          onRemoveBanner: () => _removeImage(isLogo: false),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: _BrandColorEditor(
+            selectedColor: _parseHexColor(_hexCtrl.text),
+            hexCtrl: _hexCtrl,
+            onColorSelected: _selectBrandColor,
+            onHexChanged: _onBrandHexChanged,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _logoRow() {
-    final url = _logoUrlCtrl.text.trim();
-    final hasImage = url.isNotEmpty;
-    final brand = _actionColor;
+  // Remove a imagem e persiste imediatamente.
+  Future<void> _removeImage({required bool isLogo}) async {
+    setState(() => isLogo ? _logoUrlCtrl.text = '' : _bannerUrlCtrl.text = '');
+    await _autosaveNow();
+  }
 
-    return Padding(
-      padding: const EdgeInsets.all(20),
+  // ─── Section scaffold ─────────────────────────────────────────────────────
+
+  // Card branco com cabeçalho (ícone + título + subtítulo) e corpo de campos
+  // que fluem com espaçamento consistente.
+  Widget _section({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required List<Widget> children,
+    EdgeInsets bodyPadding = const EdgeInsets.fromLTRB(20, 4, 20, 20),
+  }) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: _canvas,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _hairlineSoft),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _brandingLabel(LucideIcons.image, 'Logo'),
-          const SizedBox(height: 6),
           Padding(
-            padding: const EdgeInsets.only(left: 40),
-            child: Text(
-              'Aparece no cabeçalho do cardápio público',
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // ── Centered preview / drop zone ─────────────────────────────────
-          Center(
-            child: _LogoDropZone(
-              url: hasImage ? url : null,
-              uploading: _uploadingLogo,
-              isEditing: _isEditing,
-              brand: brand,
-              fallbackInitials: _getInitials(_nameCtrl.text),
-              onUpload: _isEditing ? () => _uploadImage(isLogo: true) : null,
-              onRemove: _isEditing && hasImage ? () => setState(() => _logoUrlCtrl.text = '') : null,
-            ),
-          ),
-          if (_isEditing) ...[
-            const SizedBox(height: 16),
-            _urlField(_logoUrlCtrl, 'URL da logo', brand),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _colorRow() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _brandingIcon(LucideIcons.palette),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Cor da marca',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF6B6F7E)),
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: _surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: _hairlineSoft),
+                  ),
+                  child: Icon(icon, size: 17, color: _ink),
                 ),
-                const SizedBox(height: 12),
-                if (_isEditing) ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _kSwatches.map((c) {
-                      final selected = _selectedColor?.toARGB32() == c.toARGB32();
-                      return GestureDetector(
-                        onTap: () => setState(() {
-                          _selectedColor = c;
-                          _hexCtrl.text = _colorHex(c);
-                        }),
-                        child: Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: c,
-                            shape: BoxShape.circle,
-                            border: selected ? Border.all(color: Colors.black87, width: 2.5) : Border.all(color: Colors.transparent),
-                          ),
-                          child: selected ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: _selectedColor ?? Colors.grey[200],
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.grey[300]!),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text('#', style: TextStyle(fontSize: 15, color: Colors.grey[600])),
-                      const SizedBox(width: 2),
-                      SizedBox(
-                        width: 120,
-                        child: TextField(
-                          controller: _hexCtrl,
-                          textCapitalization: TextCapitalization.characters,
-                          onChanged: (v) {
-                            final parsed = _parseHex(v);
-                            if (parsed != null) {
-                              setState(() => _selectedColor = parsed);
-                            }
-                          },
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]')),
-                            LengthLimitingTextInputFormatter(6),
-                          ],
-                          decoration: InputDecoration(
-                            hintText: '4262FF',
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey[300]!)),
-                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Theme.of(context).primaryColor, width: 2)),
-                            filled: true,
-                            fillColor: Colors.grey[50],
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            isDense: true,
-                          ),
-                        ),
-                      ),
+                      Text(title,
+                          style: const TextStyle(
+                              fontSize: 15,
+                              color: _ink,
+                              fontWeight: FontWeight.w600)),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(subtitle,
+                            style: const TextStyle(
+                                fontSize: 12.5, color: _steel, height: 1.3)),
+                      ],
                     ],
                   ),
-                ] else ...[
-                  Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: _selectedColor ?? Colors.grey[100],
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.grey[200]!),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _hexCtrl.text.isEmpty ? 'Não definida' : '#${_hexCtrl.text.toUpperCase()}',
-                        style: const TextStyle(
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _bannerRow() {
-    final url = _bannerUrlCtrl.text.trim();
-    final hasImage = url.isNotEmpty;
-    final brand = _actionColor;
-
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _brandingLabel(LucideIcons.layoutTemplate, 'Banner'),
-          const SizedBox(height: 6),
+          const Divider(height: 1, color: _hairlineSoft),
           Padding(
-            padding: const EdgeInsets.only(left: 40),
-            child: Text(
-              'Imagem grande exibida no topo do cardápio',
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _BannerDropZone(
-            url: hasImage ? url : null,
-            uploading: _uploadingBanner,
-            isEditing: _isEditing,
-            brand: brand,
-            onUpload: _isEditing ? () => _uploadImage(isLogo: false) : null,
-            onRemove: _isEditing && hasImage ? () => setState(() => _bannerUrlCtrl.text = '') : null,
-          ),
-          if (_isEditing) ...[
-            const SizedBox(height: 16),
-            _urlField(_bannerUrlCtrl, 'URL do banner', brand),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // ─── Public preview card ──────────────────────────────────────────────────────
-
-  Widget _buildPreviewCard(CompaniesModel c) {
-    final logoUrl = _isEditing ? _logoUrlCtrl.text.trim() : (c.logoUrl ?? '');
-    final bannerUrl = _isEditing ? _bannerUrlCtrl.text.trim() : (c.bannerUrl ?? '');
-    final brandColor = (_isEditing ? _selectedColor : _parseHex(c.brandColor)) ?? const Color(0xFF1C1C1E);
-    final name = _isEditing ? _nameCtrl.text : (c.name ?? '');
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle('Pré-visualização do cardápio público'),
-        const SizedBox(height: 16),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey[200]!),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            clipBehavior: Clip.antiAlias,
+            padding: bodyPadding,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Banner
-                SizedBox(
-                  height: 110,
-                  width: double.infinity,
-                  child: bannerUrl.isNotEmpty
-                      ? Image.network(
-                          bannerUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(color: brandColor.withValues(alpha: 0.18)),
-                        )
-                      : Container(color: brandColor.withValues(alpha: 0.12)),
-                ),
-                // Logo + company info
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.grey[100],
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: logoUrl.isNotEmpty
-                            ? Image.network(
-                                logoUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => _initialsWidget(name, brandColor, 17),
-                              )
-                            : _initialsWidget(name, brandColor, 17),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name.isEmpty ? 'Nome da empresa' : name,
-                              style: const TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFD1FAE5),
-                                borderRadius: BorderRadius.circular(99),
-                              ),
-                              child: const Text(
-                                'Aberto',
-                                style: TextStyle(fontSize: 11, color: Color(0xFF065F46)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Divider(height: 1, color: Colors.grey[100]),
-                // Sample product row
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Produto exemplo',
-                              style: TextStyle(fontSize: 13, color: Color(0xFF1C1C1E)),
-                            ),
-                            Text(
-                              'R\$ 25,00',
-                              style: TextStyle(fontSize: 12, color: Color(0xFF1C1C1E)),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          color: brandColor,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.add, color: Colors.white, size: 16),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              children:
+                  _intersperse(children, const SizedBox(height: 18)).toList(),
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Atualiza em tempo real conforme você edita',
-          style: TextStyle(fontSize: 12, color: Colors.grey[400]),
-        ),
-      ],
-    );
-  }
-
-  String _currencyValue(double? value) {
-    if (value == null) return 'Não informado';
-    final formatter = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
-    return formatter.format(value);
-  }
-
-  String _distanceValue(int? value) {
-    if (value == null) return 'Não informado';
-    return '$value m';
-  }
-
-  // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-  Widget _initialsWidget(String name, Color brandColor, double fontSize) {
-    return Container(
-      color: brandColor.withValues(alpha: 0.15),
-      child: Center(
-        child: Text(
-          _getInitials(name),
-          style: TextStyle(fontSize: fontSize, color: brandColor),
-        ),
-      ),
-    );
-  }
-
-  Widget _brandingLabel(IconData icon, String label) {
-    return Row(
-      children: [
-        _brandingIcon(icon),
-        const SizedBox(width: 14),
-        Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E))),
-      ],
-    );
-  }
-
-  Widget _brandingIcon(IconData icon) {
-    return Container(
-      width: 28,
-      height: 28,
-      decoration: BoxDecoration(
-        color: _actionColor.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Icon(icon, size: 16, color: _actionColor),
-    );
-  }
-
-  Widget _urlField(TextEditingController ctrl, String label, [Color? focusColor]) {
-    final accent = focusColor ?? _actionColor;
-    return TextField(
-      controller: ctrl,
-      onChanged: (_) => setState(() {}),
-      style: const TextStyle(fontSize: 13),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(fontSize: 12, color: Colors.grey[600]),
-        hintText: 'https://...',
-        hintStyle: TextStyle(fontSize: 12, color: Colors.grey[400]),
-        prefixIcon: Icon(LucideIcons.link, size: 14, color: Colors.grey[400]),
-        prefixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 0),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey[300]!)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: accent, width: 2)),
-        filled: true,
-        fillColor: Colors.grey[50],
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        isDense: true,
-      ),
-    );
-  }
-
-  Widget _sectionTitle(String title) {
-    return Text(
-      title,
-      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: Colors.grey[800],
-          ),
-    );
-  }
-
-  Widget _sectionCard({required List<Widget> children}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-      ),
-      child: Column(
-        children: _intersperse(
-          children,
-          Divider(height: 1, color: Colors.grey[200]),
-        ).toList(),
+        ],
       ),
     );
   }
@@ -1256,7 +1326,10 @@ class _BusinessInformationsState extends State<BusinessInformations> {
         children: [
           Row(
             children: [
-              LoadingContainer(height: 80, width: 80, borderRadius: BorderRadius.all(Radius.circular(100))),
+              LoadingContainer(
+                  height: 80,
+                  width: 80,
+                  borderRadius: BorderRadius.all(Radius.circular(100))),
               SizedBox(width: 24),
               Expanded(
                 child: Column(
@@ -1295,7 +1368,10 @@ class _BusinessInformationsState extends State<BusinessInformations> {
             const SizedBox(height: 8),
             Text(
               message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Colors.grey[600]),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -1312,38 +1388,6 @@ class _BusinessInformationsState extends State<BusinessInformations> {
 
   // ─── Misc helpers ─────────────────────────────────────────────────────────────
 
-  Widget _statusBadge(bool isActive) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: isActive ? Colors.green[50] : Colors.red[50],
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isActive ? Colors.green[200]! : Colors.red[200]!),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: isActive ? Colors.green : Colors.red,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            isActive ? 'Ativa' : 'Inativa',
-            style: TextStyle(
-              color: isActive ? Colors.green[700] : Colors.red[700],
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _getInitials(String name) {
     if (name.isEmpty) return '?';
     final parts = name.trim().split(' ');
@@ -1359,357 +1403,633 @@ class _BusinessInformationsState extends State<BusinessInformations> {
   }
 }
 
-// ─── Logo drop zone (centered circular) ─────────────────────────────────────
-class _LogoDropZone extends StatefulWidget {
-  final String? url;
-  final bool uploading;
-  final bool isEditing;
-  final Color brand;
-  final String fallbackInitials;
-  final VoidCallback? onUpload;
-  final VoidCallback? onRemove;
+// ─── Brand color editor ─────────────────────────────────────────────────────
 
-  const _LogoDropZone({
-    required this.url,
-    required this.uploading,
-    required this.isEditing,
-    required this.brand,
-    required this.fallbackInitials,
-    this.onUpload,
-    this.onRemove,
+class _BrandColorEditor extends StatelessWidget {
+  final Color? selectedColor;
+  final TextEditingController hexCtrl;
+  final ValueChanged<Color> onColorSelected;
+  final ValueChanged<String> onHexChanged;
+
+  const _BrandColorEditor({
+    required this.selectedColor,
+    required this.hexCtrl,
+    required this.onColorSelected,
+    required this.onHexChanged,
   });
 
   @override
-  State<_LogoDropZone> createState() => _LogoDropZoneState();
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _BusinessInformationsState._surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _BusinessInformationsState._hairlineSoft),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(LucideIcons.palette,
+                  size: 15, color: _BusinessInformationsState._steel),
+              SizedBox(width: 8),
+              Text(
+                'Cor principal da marca',
+                style: TextStyle(
+                    fontSize: 13,
+                    color: _BusinessInformationsState._slate,
+                    fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Aplicada em botões e destaques do cardápio online.',
+            style: TextStyle(
+                fontSize: 12, color: _BusinessInformationsState._steel),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: _kBrandSwatches.map((color) {
+              final selected = selectedColor?.toARGB32() == color.toARGB32();
+              return Tooltip(
+                message:
+                    '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+                child: GestureDetector(
+                  onTap: () => onColorSelected(color),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: selected
+                            ? _BusinessInformationsState._ink
+                            : _BusinessInformationsState._canvas,
+                        width: selected ? 2.5 : 2,
+                      ),
+                      boxShadow: _DSColorShadow.small,
+                    ),
+                    child: selected
+                        ? const Icon(LucideIcons.check,
+                            color: Colors.white, size: 15)
+                        : null,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: selectedColor ?? _BusinessInformationsState._canvas,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: _BusinessInformationsState._hairlineSoft),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text('#',
+                  style: TextStyle(
+                      fontSize: 14, color: _BusinessInformationsState._slate)),
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 122,
+                child: TextField(
+                  controller: hexCtrl,
+                  textCapitalization: TextCapitalization.characters,
+                  onChanged: onHexChanged,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]')),
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  style: const TextStyle(
+                      fontSize: 13, color: _BusinessInformationsState._ink),
+                  decoration: InputDecoration(
+                    hintText: '4262FF',
+                    hintStyle: const TextStyle(
+                        color: _BusinessInformationsState._steel, fontSize: 13),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                          color: _BusinessInformationsState._hairlineSoft),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                          color: _BusinessInformationsState._hairlineSoft),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(
+                          color: _BusinessInformationsState._ink, width: 1.5),
+                    ),
+                    filled: true,
+                    fillColor: _BusinessInformationsState._canvas,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 10),
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _LogoDropZoneState extends State<_LogoDropZone> {
-  bool _hover = false;
+class _DSColorShadow {
+  static List<BoxShadow> small = [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.08),
+      blurRadius: 8,
+      offset: const Offset(0, 2),
+    ),
+  ];
+}
+
+// ─── Branding header (banner + logo flutuante, estilo cardápio) ─────────────
+class _BrandingHeader extends StatefulWidget {
+  final String logoUrl;
+  final String bannerUrl;
+  final String name;
+  final String fallbackInitials;
+  final bool uploadingLogo;
+  final bool uploadingBanner;
+  final VoidCallback onUploadLogo;
+  final VoidCallback onRemoveLogo;
+  final VoidCallback onUploadBanner;
+  final VoidCallback onRemoveBanner;
+
+  const _BrandingHeader({
+    required this.logoUrl,
+    required this.bannerUrl,
+    required this.name,
+    required this.fallbackInitials,
+    required this.uploadingLogo,
+    required this.uploadingBanner,
+    required this.onUploadLogo,
+    required this.onRemoveLogo,
+    required this.onUploadBanner,
+    required this.onRemoveBanner,
+  });
+
+  @override
+  State<_BrandingHeader> createState() => _BrandingHeaderState();
+}
+
+class _BrandingHeaderState extends State<_BrandingHeader> {
+  static const _ink = Color(0xFF1C1C1E);
+  // Banner full-bleed com altura compacta. A imagem continua sendo recortada
+  // em 21:9 no upload; aqui é só a faixa de preview, mais elegante.
+  static const double _bannerHeight = 150;
+  static const double _logoSize = 88;
+
+  bool _bannerHover = false;
+  bool _logoHover = false;
 
   @override
   Widget build(BuildContext context) {
-    final hasImage = (widget.url ?? '').isNotEmpty;
-    final clickable = widget.isEditing && widget.onUpload != null;
-
-    return MouseRegion(
-      cursor: clickable ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: clickable && !widget.uploading ? (hasImage ? null : widget.onUpload) : null,
-        child: Column(
+    // Sem card próprio — a seção que o contém já fornece o card.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.bottomCenter,
           children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              width: 128,
-              height: 128,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: hasImage ? Colors.white : Colors.grey[50],
-                border: Border.all(
-                  color: hasImage ? Colors.grey[200]! : (_hover && clickable ? widget.brand : Colors.grey[300]!),
-                  width: hasImage ? 1 : 1.5,
-                  style: hasImage ? BorderStyle.solid : BorderStyle.solid,
-                ),
-                boxShadow: _hover && clickable
-                    ? [
-                        BoxShadow(
-                          color: widget.brand.withValues(alpha: 0.12),
-                          blurRadius: 18,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : null,
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                fit: StackFit.expand,
-                alignment: Alignment.center,
-                children: [
-                  if (hasImage)
-                    Image.network(
-                      widget.url!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _emptyContent(clickable),
-                    )
-                  else
-                    _emptyContent(clickable),
-                  if (widget.uploading)
-                    Container(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      child: const Center(
-                        child: SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation(Colors.white),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+            _buildBanner(),
+            Positioned(
+              bottom: -_logoSize / 2,
+              child: _buildLogo(),
             ),
-            if (widget.isEditing && !widget.uploading) ...[
+          ],
+        ),
+        // Espaço reservado para a metade da logo que "flutua" sobre o branco.
+        const SizedBox(height: _logoSize / 2 + 14),
+        if (widget.name.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              widget.name,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 16, color: _ink, fontWeight: FontWeight.w600),
+            ),
+          ),
+        const SizedBox(height: 8),
+        // Requisitos do upload: formatos, limite e resolução recomendada.
+        Center(
+          child: UploadHints(
+            recommendation: 'Banner recomendado: ${kBannerOutW.toInt()} × ${kBannerOutH.toInt()} px (21:9)',
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  // ── Banner ──────────────────────────────────────────────────────────────
+  Widget _buildBanner() {
+    final hasImage = widget.bannerUrl.isNotEmpty;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _bannerHover = true),
+      onExit: (_) => setState(() => _bannerHover = false),
+      child: GestureDetector(
+        onTap:
+            !widget.uploadingBanner && !hasImage ? widget.onUploadBanner : null,
+        child: SizedBox(
+          height: _bannerHeight,
+          width: double.infinity,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (hasImage)
+                Image.network(
+                  widget.bannerUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _bannerPlaceholder(),
+                )
+              else
+                _bannerPlaceholder(),
+              if (widget.uploadingBanner)
+                _loadingOverlay()
+              else if (_bannerHover)
+                _bannerHoverOverlay(hasImage),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _bannerPlaceholder() {
+    return Container(
+      color: const Color(0xFFF1F2F4),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.image, size: 30, color: Colors.grey[400]),
+            const SizedBox(height: 8),
+            Text(
+              'Adicionar banner',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${kBannerOutW.toInt()} × ${kBannerOutH.toInt()} px · 21:9',
+              style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _bannerHoverOverlay(bool hasImage) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.42),
+      child: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _overlayButton(
+              icon: hasImage ? LucideIcons.refreshCw : LucideIcons.upload,
+              label: hasImage ? 'Trocar banner' : 'Enviar banner',
+              onTap: widget.onUploadBanner,
+              filled: true,
+            ),
+            if (hasImage) ...[
+              const SizedBox(width: 8),
+              _overlayButton(
+                icon: LucideIcons.trash2,
+                label: 'Remover',
+                onTap: widget.onRemoveBanner,
+                filled: false,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Logo ────────────────────────────────────────────────────────────────
+  Widget _buildLogo() {
+    final hasImage = widget.logoUrl.isNotEmpty;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _logoHover = true),
+      onExit: (_) => setState(() => _logoHover = false),
+      child: GestureDetector(
+        onTap: !widget.uploadingLogo && !hasImage ? widget.onUploadLogo : null,
+        child: Container(
+          width: _logoSize,
+          height: _logoSize,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 14,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (hasImage)
+                Image.network(
+                  widget.logoUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _logoPlaceholder(),
+                )
+              else
+                _logoPlaceholder(),
+              if (widget.uploadingLogo)
+                _loadingOverlay()
+              else if (_logoHover)
+                _logoHoverOverlay(hasImage),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _logoPlaceholder() {
+    final hasInitials =
+        widget.fallbackInitials.isNotEmpty && widget.fallbackInitials != '?';
+    return Container(
+      color: const Color(0xFFF1F2F4),
+      child: Center(
+        child: hasInitials
+            ? Text(
+                widget.fallbackInitials,
+                style: const TextStyle(
+                    fontSize: 26, color: _ink, fontWeight: FontWeight.w600),
+              )
+            : Icon(LucideIcons.image, size: 24, color: Colors.grey[400]),
+      ),
+    );
+  }
+
+  Widget _logoHoverOverlay(bool hasImage) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.45),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _logoIconAction(
+            icon: hasImage ? LucideIcons.refreshCw : LucideIcons.upload,
+            tooltip: hasImage ? 'Trocar logo' : 'Enviar logo',
+            onTap: widget.onUploadLogo,
+          ),
+          if (hasImage) ...[
+            const SizedBox(width: 6),
+            _logoIconAction(
+              icon: LucideIcons.trash2,
+              tooltip: 'Remover logo',
+              onTap: widget.onRemoveLogo,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _logoIconAction(
+      {required IconData icon,
+      required String tooltip,
+      required VoidCallback onTap}) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, size: 18, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
+  // ── Shared ──────────────────────────────────────────────────────────────
+  Widget _loadingOverlay() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.45),
+      child: const Center(
+        child: SizedBox(
+          width: 26,
+          height: 26,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            valueColor: AlwaysStoppedAnimation(Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _overlayButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    required bool filled,
+  }) {
+    final fg = filled ? _ink : Colors.white;
+    final bg = filled ? Colors.white : Colors.transparent;
+    return Material(
+      color: bg,
+      shape: StadiumBorder(
+          side: filled
+              ? BorderSide.none
+              : const BorderSide(color: Colors.white70)),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: fg),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 12, color: fg, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Diálogo de nova personalidade da IA (título + texto) ───────────────────
+class _PersonalityDialog extends StatefulWidget {
+  final bool Function(String label) isDuplicateLabel;
+  const _PersonalityDialog({required this.isDuplicateLabel});
+
+  @override
+  State<_PersonalityDialog> createState() => _PersonalityDialogState();
+}
+
+class _PersonalityDialogState extends State<_PersonalityDialog> {
+  static const _ink = Color(0xFF1C1C1E);
+  static const _steel = Color(0xFF6B6F7E);
+
+  final _labelCtrl = TextEditingController();
+  final _promptCtrl = TextEditingController();
+  String? _labelError;
+  String? _promptError;
+
+  @override
+  void dispose() {
+    _labelCtrl.dispose();
+    _promptCtrl.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final label = _labelCtrl.text.trim();
+    final prompt = _promptCtrl.text.trim();
+    setState(() {
+      _labelError = label.isEmpty
+          ? 'Informe um título'
+          : widget.isDuplicateLabel(label)
+              ? 'Já existe uma personalidade com esse título'
+              : null;
+      _promptError = prompt.isEmpty ? 'Descreva a personalidade' : null;
+    });
+    if (_labelError != null || _promptError != null) return;
+    Navigator.of(context).pop((label: label, prompt: prompt));
+  }
+
+  InputDecoration _dec({required String label, String? hint, String? error}) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      errorText: error,
+      labelStyle: const TextStyle(fontSize: 13, color: _steel),
+      hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+      filled: true,
+      fillColor: const Color(0xFFF7F8FA),
+      border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.grey[300]!)),
+      enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.grey[300]!)),
+      focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _ink, width: 2)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      isDense: true,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = math.min(MediaQuery.of(context).size.width * 0.9, 480.0);
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.all(24),
+      child: SizedBox(
+        width: width,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Nova personalidade',
+                  style: TextStyle(
+                      fontSize: 17, color: _ink, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              const Text(
+                'Dê um título e descreva como o atendente deve se comportar.',
+                style: TextStyle(fontSize: 12.5, color: _steel, height: 1.3),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _labelCtrl,
+                autofocus: true,
+                maxLength: 40,
+                textCapitalization: TextCapitalization.sentences,
+                style: const TextStyle(fontSize: 14),
+                onChanged: (_) {
+                  if (_labelError != null) setState(() => _labelError = null);
+                },
+                decoration: _dec(
+                        label: 'Título',
+                        hint: 'Ex.: Divertido',
+                        error: _labelError)
+                    .copyWith(counterText: ''),
+              ),
               const SizedBox(height: 14),
+              TextField(
+                controller: _promptCtrl,
+                maxLength: 500,
+                maxLines: 5,
+                textCapitalization: TextCapitalization.sentences,
+                style: const TextStyle(fontSize: 14),
+                onChanged: (_) {
+                  if (_promptError != null) setState(() => _promptError = null);
+                },
+                decoration: _dec(
+                  label: 'Personalidade',
+                  hint:
+                      'Ex.: Você é um atendente bem-humorado, faz piadas leves...',
+                  error: _promptError,
+                ).copyWith(counterText: ''),
+              ),
+              const SizedBox(height: 16),
               Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: TextButton.styleFrom(foregroundColor: _steel),
+                    child: const Text('Cancelar'),
+                  ),
+                  const SizedBox(width: 8),
                   FilledButton.icon(
-                    onPressed: widget.onUpload,
-                    icon: Icon(
-                      hasImage ? LucideIcons.refreshCw : LucideIcons.upload,
-                      size: 14,
-                    ),
-                    label: Text(hasImage ? 'Trocar' : 'Enviar imagem'),
+                    onPressed: _save,
+                    icon: const Icon(LucideIcons.check, size: 16),
+                    label: const Text('Salvar'),
                     style: FilledButton.styleFrom(
-                      backgroundColor: widget.brand,
+                      backgroundColor: _ink,
                       foregroundColor: Colors.white,
                       shape: const StadiumBorder(),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      textStyle: const TextStyle(
-                        fontSize: 12,
-                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 12),
                     ),
                   ),
-                  if (hasImage && widget.onRemove != null) ...[
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: widget.onRemove,
-                      icon: const Icon(LucideIcons.trash2, size: 14),
-                      label: const Text('Remover'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.grey[700],
-                        side: BorderSide(color: Colors.grey[300]!),
-                        shape: const StadiumBorder(),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        textStyle: const TextStyle(
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
-            ] else if (!widget.isEditing && hasImage) ...[
-              // view mode: no actions
-            ] else if (!widget.isEditing && !hasImage) ...[
-              const SizedBox(height: 10),
-              Text(
-                'Nenhuma logo definida',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-              ),
             ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _emptyContent(bool clickable) {
-    return Container(
-      color: Colors.grey[50],
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              clickable ? LucideIcons.upload : LucideIcons.image,
-              size: 26,
-              color: clickable && _hover ? widget.brand : Colors.grey[400],
-            ),
-            if (clickable) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Adicionar',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: _hover ? widget.brand : Colors.grey[500],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Banner drop zone (centered rectangular) ────────────────────────────────
-class _BannerDropZone extends StatefulWidget {
-  final String? url;
-  final bool uploading;
-  final bool isEditing;
-  final Color brand;
-  final VoidCallback? onUpload;
-  final VoidCallback? onRemove;
-
-  const _BannerDropZone({
-    required this.url,
-    required this.uploading,
-    required this.isEditing,
-    required this.brand,
-    this.onUpload,
-    this.onRemove,
-  });
-
-  @override
-  State<_BannerDropZone> createState() => _BannerDropZoneState();
-}
-
-class _BannerDropZoneState extends State<_BannerDropZone> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasImage = (widget.url ?? '').isNotEmpty;
-    final clickable = widget.isEditing && widget.onUpload != null;
-
-    return MouseRegion(
-      cursor: clickable ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: clickable && !widget.uploading ? (hasImage ? null : widget.onUpload) : null,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              height: 150,
-              decoration: BoxDecoration(
-                color: hasImage ? Colors.white : Colors.grey[50],
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: hasImage ? Colors.grey[200]! : (_hover && clickable ? widget.brand : Colors.grey[300]!),
-                  width: hasImage ? 1 : 1.5,
-                ),
-                boxShadow: _hover && clickable
-                    ? [
-                        BoxShadow(
-                          color: widget.brand.withValues(alpha: 0.10),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : null,
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (hasImage)
-                    Image.network(
-                      widget.url!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _emptyContent(clickable),
-                    )
-                  else
-                    _emptyContent(clickable),
-                  if (widget.uploading)
-                    Container(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      child: const Center(
-                        child: SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation(Colors.white),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            if (widget.isEditing && !widget.uploading) ...[
-              const SizedBox(height: 14),
-              Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: widget.onUpload,
-                      icon: Icon(
-                        hasImage ? LucideIcons.refreshCw : LucideIcons.upload,
-                        size: 14,
-                      ),
-                      label: Text(hasImage ? 'Trocar' : 'Enviar imagem'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: widget.brand,
-                        foregroundColor: Colors.white,
-                        shape: const StadiumBorder(),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        textStyle: const TextStyle(
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    if (hasImage && widget.onRemove != null) ...[
-                      const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        onPressed: widget.onRemove,
-                        icon: const Icon(LucideIcons.trash2, size: 14),
-                        label: const Text('Remover'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.grey[700],
-                          side: BorderSide(color: Colors.grey[300]!),
-                          shape: const StadiumBorder(),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          textStyle: const TextStyle(
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ] else if (!widget.isEditing && !hasImage) ...[
-              const SizedBox(height: 10),
-              Center(
-                child: Text(
-                  'Nenhum banner definido',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _emptyContent(bool clickable) {
-    return Container(
-      color: Colors.grey[50],
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              clickable ? LucideIcons.upload : LucideIcons.layoutTemplate,
-              size: 32,
-              color: clickable && _hover ? widget.brand : Colors.grey[400],
-            ),
-            if (clickable) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Clique para enviar uma imagem',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: _hover ? widget.brand : Colors.grey[500],
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'PNG, JPG ou WEBP · até 10 MB',
-                style: TextStyle(fontSize: 10, color: Colors.grey[400]),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );

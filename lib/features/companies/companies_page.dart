@@ -82,6 +82,7 @@ class _CompaniesPageState extends State<CompaniesPage> {
   Widget build(BuildContext context) {
     final menuItems = <({String label, IconData icon})>[
       (label: "Informações da Empresa", icon: LucideIcons.store),
+      (label: "IA", icon: LucideIcons.bot),
       (label: "Endereço", icon: LucideIcons.mapPin),
       (label: "Horários", icon: LucideIcons.clock),
       (label: "Cardápio", icon: LucideIcons.beef),
@@ -103,6 +104,7 @@ class _CompaniesPageState extends State<CompaniesPage> {
               margin: const EdgeInsets.only(top: 40),
               constraints: const BoxConstraints(maxWidth: 1300),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
                     width: _menuWidth,
@@ -128,16 +130,25 @@ class _CompaniesPageState extends State<CompaniesPage> {
                     ),
                   ),
                   const SizedBox(width: 18),
-                  if (selectedIndex == 0) BusinessInformations(controller: controller),
-                  if (selectedIndex == 1) BusinessAddress(controller: controller),
-                  if (selectedIndex == 2) const CompanyOpeningHoursPage(),
-                  if (selectedIndex == 3) const MenuItemsPage(),
-                  if (selectedIndex == 4) const PromotionsPage(),
-                  if (selectedIndex == 5) const PaymentMethodsPage(),
-                  if (selectedIndex == 6) const AdditionalInfoPage(),
-                  if (selectedIndex == 7) const ConnectionsPage(),
-                  if (selectedIndex == 8) const UpsellRulesPage(),
-                  if (selectedIndex == 9) const PurchaseGoalsPage(),
+                  if (selectedIndex == 0)
+                    BusinessInformations(
+                      controller: controller,
+                      section: BusinessSection.info,
+                    ),
+                  if (selectedIndex == 1)
+                    BusinessInformations(
+                      controller: controller,
+                      section: BusinessSection.ai,
+                    ),
+                  if (selectedIndex == 2) BusinessAddress(controller: controller),
+                  if (selectedIndex == 3) const CompanyOpeningHoursPage(),
+                  if (selectedIndex == 4) const MenuItemsPage(),
+                  if (selectedIndex == 5) const PromotionsPage(),
+                  if (selectedIndex == 6) const PaymentMethodsPage(),
+                  if (selectedIndex == 7) const AdditionalInfoPage(),
+                  if (selectedIndex == 8) const ConnectionsPage(),
+                  if (selectedIndex == 9) const UpsellRulesPage(),
+                  if (selectedIndex == 10) const PurchaseGoalsPage(),
                 ],
               ),
             ),

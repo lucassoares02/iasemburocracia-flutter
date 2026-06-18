@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:portal_assoc/features/menu_categories/menu_categories_model.dart';
 import 'package:portal_assoc/features/menu_categories/menu_categories_repository.dart';
+import 'package:portal_assoc/features/menu_items/ifood_import_dialog.dart';
 import 'package:portal_assoc/features/menu_items/menu_items_model.dart';
 import 'package:portal_assoc/features/menu_items/menu_items_repository.dart';
 import 'package:portal_assoc/features/onboarding/setup_validation_service.dart';
@@ -160,6 +161,23 @@ class _MenuStepState extends State<MenuStep> {
     }
   }
 
+  /// Abre o "Preenchimento Automático" (importação do cardápio via iFood).
+  /// Ao concluir, atualiza o snapshot do onboarding para refletir os produtos.
+  Future<void> _openIfoodImport() async {
+    final prefs = await SharedPreferences.getInstance();
+    final companyId = prefs.getInt('company') ?? 0;
+    if (companyId == 0) {
+      setState(() => _serverError = 'Empresa não encontrada.');
+      return;
+    }
+    if (!mounted) return;
+    await showIfoodImportDialog(
+      context,
+      companyId: companyId,
+      onImported: () => widget.onSaved(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasItems = widget.snapshot.menuItems.isNotEmpty;
@@ -221,6 +239,8 @@ class _MenuStepState extends State<MenuStep> {
             style: const TextStyle(fontSize: 12, color: OnboardingDS.stone),
           ),
         ],
+        const SizedBox(height: 16),
+        _AutoFillBanner(onTap: _openIfoodImport),
       ],
     );
   }
@@ -231,6 +251,22 @@ class _MenuStepState extends State<MenuStep> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _AutoFillBanner(onTap: _openIfoodImport),
+          const SizedBox(height: 16),
+          const Row(
+            children: [
+              Expanded(child: Divider(color: OnboardingDS.hairlineSoft)),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  'ou cadastre manualmente',
+                  style: TextStyle(fontSize: 12, color: OnboardingDS.stone),
+                ),
+              ),
+              Expanded(child: Divider(color: OnboardingDS.hairlineSoft)),
+            ],
+          ),
+          const SizedBox(height: 16),
           _ImagePicker(
             url: _imageUrlCtrl.text.trim(),
             uploading: _uploading,
@@ -451,6 +487,71 @@ class _MenuPreviewRow extends StatelessWidget {
               style: const TextStyle(fontSize: 13, color: OnboardingDS.brandBlue),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// CTA de "Preenchimento Automático": importa o cardápio do iFood com 1 clique.
+class _AutoFillBanner extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AutoFillBanner({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(OnboardingDS.rXl),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: OnboardingDS.brandBlue.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(OnboardingDS.rXl),
+            border: Border.all(color: OnboardingDS.brandBlue.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: OnboardingDS.brandBlue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(LucideIcons.sparkles, color: OnboardingDS.brandBlue, size: 20),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Preenchimento Automático',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: OnboardingDS.ink,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Importe categorias, produtos e imagens do seu cardápio no iFood.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: OnboardingDS.steel,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Icon(LucideIcons.arrowRight, size: 18, color: OnboardingDS.brandBlue),
+            ],
+          ),
         ),
       ),
     );

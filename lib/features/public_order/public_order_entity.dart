@@ -7,6 +7,8 @@ class PublicCompanyEntity {
   String? logoUrl;
   String? bannerUrl;
   String? brandColor;
+  bool acceptsDelivery = true;
+  bool acceptsPickup = true;
 }
 
 class PublicOpeningHourEntity {
@@ -28,6 +30,7 @@ class PublicMenuItemEntity {
   int? prepTimeMinutes;
   bool featured = false;
   bool hasOptions = false;
+  int salesCount = 0; // total vendido (para ordenar "mais pedidos")
 }
 
 class PublicCategoryEntity {
@@ -56,6 +59,7 @@ class PublicPromotionItemEntity {
   double? price;
   int quantity = 1;
   double? subtotal;
+  bool hasOptions = false;
 }
 
 class PublicPaymentMethodEntity {

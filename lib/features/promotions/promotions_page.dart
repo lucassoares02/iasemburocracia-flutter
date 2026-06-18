@@ -217,6 +217,8 @@ class _PromotionFormState extends State<PromotionForm> {
   bool _active = true;
   int _tabIndex = 0;
   bool _saving = false;
+  bool _uploading = false;
+  String? _imageError;
   _PriceMode _priceMode = _PriceMode.discount;
   List<MenuItemsModel> _menuItems = [];
   final Map<int, int> _selected = {};
@@ -241,6 +243,8 @@ class _PromotionFormState extends State<PromotionForm> {
     _productSearch.addListener(() => setState(() {}));
     _discount.addListener(_onPriceInputChanged);
     _final.addListener(_onPriceInputChanged);
+    // Atualiza o preview ao colar/editar a URL manualmente.
+    _image.addListener(() => setState(() {}));
   }
 
   void _onPriceInputChanged() {
@@ -304,11 +308,28 @@ class _PromotionFormState extends State<PromotionForm> {
   }
 
   Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+    if (_uploading) return;
+    setState(() => _imageError = null);
+
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+    } catch (_) {
+      if (mounted) setState(() => _imageError = 'Não foi possível abrir o seletor de arquivos.');
+      return;
+    }
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
     final bytes = file.bytes;
-    if (bytes == null) return;
+    if (bytes == null || bytes.isEmpty) {
+      setState(() => _imageError = 'Arquivo selecionado está vazio. Tente outra imagem.');
+      return;
+    }
+    // 10 MB — alinhado com o limite do servidor.
+    if (bytes.lengthInBytes > 10 * 1024 * 1024) {
+      setState(() => _imageError = 'A imagem é muito grande. O limite é de 10 MB.');
+      return;
+    }
     await _upload(bytes, file.name, file.extension ?? 'png');
   }
 
@@ -318,10 +339,189 @@ class _PromotionFormState extends State<PromotionForm> {
         : ext.toLowerCase() == 'webp'
             ? 'image/webp'
             : 'image/png';
-    final res = await widget.controller.uploadImage(bytes, name, mime);
-    if (res.success && res.data is Map<String, dynamic>) {
-      setState(() => _image.text = ((res.data as Map<String, dynamic>)['url'] ?? '').toString());
+    setState(() {
+      _uploading = true;
+      _imageError = null;
+    });
+    try {
+      final res = await widget.controller.uploadImage(bytes, name, mime);
+      if (!mounted) return;
+      if (res.success && res.data is Map<String, dynamic>) {
+        final url = ((res.data as Map<String, dynamic>)['url'] ?? '').toString();
+        if (url.isEmpty) {
+          setState(() => _imageError = 'O servidor não retornou a URL da imagem. Tente novamente.');
+          return;
+        }
+        setState(() => _image.text = url);
+      } else {
+        setState(() => _imageError = res.message.isNotEmpty ? 'Falha no upload: ${res.message}' : 'Falha no upload da imagem. Tente novamente.');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _imageError = 'Erro ao enviar imagem: ${e.toString().replaceFirst('Exception: ', '')}');
+    } finally {
+      if (mounted) setState(() => _uploading = false);
     }
+  }
+
+  // ─── Seção de imagem (upload visual + preview + URL) ──────────────────────
+  Widget _buildImageSection() {
+    final url = _image.text.trim();
+    final hasImage = url.isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Imagem / Banner', style: TextStyle(fontSize: 12.5, color: _DS.steel)),
+        const SizedBox(height: 6),
+        if (hasImage) _buildImagePreview(url) else _buildUploadArea(),
+        const SizedBox(height: 8),
+        // Campo de URL (cole o link diretamente — o preview atualiza sozinho).
+        TextField(
+          controller: _image,
+          style: const TextStyle(fontSize: 13, color: _DS.ink),
+          decoration: _promoInputDecoration(labelText: 'ou cole a URL da imagem').copyWith(
+            prefixIcon: const Icon(LucideIcons.link, size: 16, color: _DS.stone),
+            suffixIcon: hasImage
+                ? IconButton(
+                    icon: const Icon(LucideIcons.x, size: 16, color: _DS.stone),
+                    tooltip: 'Limpar',
+                    onPressed: () => _image.clear(),
+                  )
+                : null,
+          ),
+        ),
+        if (_imageError != null) ...[
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(LucideIcons.alertCircle, size: 14, color: _DS.danger),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(_imageError!, style: const TextStyle(fontSize: 12, color: _DS.danger, height: 1.35)),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildUploadArea() {
+    return GestureDetector(
+      onTap: _uploading ? null : _pickImage,
+      child: Container(
+        height: 132,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: _DS.canvas,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _uploading ? _DS.hairline : _DS.brandBlue, width: 1.4),
+        ),
+        child: _uploading
+            ? const Center(
+                child: SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.5, color: _DS.brandBlue)),
+              )
+            : Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(color: _DS.brandBlue.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(11)),
+                      child: const Icon(LucideIcons.imagePlus, size: 20, color: _DS.brandBlue),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Enviar imagem', style: TextStyle(fontSize: 13, color: _DS.brandBlue)),
+                    const SizedBox(height: 2),
+                    const Text('PNG, JPG ou WEBP · até 10 MB', style: TextStyle(fontSize: 11, color: _DS.stone)),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildImagePreview(String url) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
+        children: [
+          Image.network(
+            url,
+            height: 160,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+              height: 160,
+              width: double.infinity,
+              color: _DS.surface,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(LucideIcons.imageOff, size: 22, color: _DS.muted),
+                    SizedBox(height: 6),
+                    Text('Não foi possível carregar a imagem', style: TextStyle(fontSize: 12, color: _DS.stone)),
+                  ],
+                ),
+              ),
+            ),
+            loadingBuilder: (_, child, progress) {
+              if (progress == null) return child;
+              return Container(
+                height: 160,
+                width: double.infinity,
+                color: _DS.surface,
+                child: const Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5, color: _DS.brandBlue))),
+              );
+            },
+          ),
+          if (_uploading)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.45),
+                child: const Center(
+                  child: SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white))),
+                ),
+              ),
+            ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Row(
+              children: [
+                _previewAction(icon: LucideIcons.refreshCw, label: 'Trocar', onTap: _uploading ? null : _pickImage),
+                const SizedBox(width: 6),
+                _previewAction(icon: LucideIcons.trash2, label: 'Remover', onTap: _uploading ? null : () => _image.clear()),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewAction({required IconData icon, required String label, VoidCallback? onTap}) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.55),
+      shape: const StadiumBorder(),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 13, color: Colors.white),
+              const SizedBox(width: 6),
+              Text(label, style: const TextStyle(fontSize: 12, color: Colors.white)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _submit() async {
@@ -356,11 +556,11 @@ class _PromotionFormState extends State<PromotionForm> {
   Widget build(BuildContext context) {
     final canSubmit = !_saving && _selected.isNotEmpty && _finalPrice >= 0 && _finalPrice <= _original && _discountPct >= 0;
     return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       child: SizedBox(
-        width: 1080,
-        height: 720,
+        width: 720,
+        height: 760,
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -475,21 +675,8 @@ class _PromotionFormState extends State<PromotionForm> {
               _PromoField(controller: _name, label: 'Nome da promoção'),
               const SizedBox(height: 8),
               _PromoField(controller: _desc, label: 'Descrição'),
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: _PromoField(controller: _image, label: 'URL da imagem/banner')),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: _pickImage,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _DS.ink,
-                    side: const BorderSide(color: _DS.hairline),
-                    shape: const StadiumBorder(),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                  child: const Text('Upload'),
-                ),
-              ]),
+              const SizedBox(height: 12),
+              _buildImageSection(),
               const SizedBox(height: 8),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -497,11 +684,6 @@ class _PromotionFormState extends State<PromotionForm> {
                 onChanged: (v) => setState(() => _active = v),
                 title: const Text('Promoção ativa'),
               ),
-              if (_image.text.trim().isNotEmpty)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(_image.text.trim(), height: 140, width: double.infinity, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(height: 140, color: _DS.surface)),
-                ),
             ],
           ),
         ),

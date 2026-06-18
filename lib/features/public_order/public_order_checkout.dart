@@ -77,8 +77,17 @@ class _IdentifyScreen extends StatefulWidget {
 }
 
 class _IdentifyScreenState extends State<_IdentifyScreen> {
+  // Máscara de telefone: (27) 9 9999-9999. A API recebe apenas os dígitos.
+  final _phoneMask = MaskedInputFormatter('(##) # ####-####', allowedCharMatcher: RegExp(r'[0-9]'));
   late final _nameCtrl = TextEditingController(text: widget.initialName ?? '');
-  late final _phoneCtrl = TextEditingController(text: widget.initialPhone ?? '');
+  late final _phoneCtrl = TextEditingController(
+    text: _phoneMask
+        .formatEditUpdate(
+          const TextEditingValue(),
+          TextEditingValue(text: widget.initialPhone ?? ''),
+        )
+        .text,
+  );
   bool _saving = false;
   String? _error;
 
@@ -91,7 +100,8 @@ class _IdentifyScreenState extends State<_IdentifyScreen> {
 
   Future<void> _submit() async {
     final name = _nameCtrl.text.trim();
-    final phone = _phoneCtrl.text.trim();
+    // Envia somente os dígitos do telefone para a API.
+    final phone = _phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
     if (name.isEmpty) {
       setState(() => _error = 'Informe seu nome.');
       return;
@@ -128,7 +138,7 @@ class _IdentifyScreenState extends State<_IdentifyScreen> {
                 const SizedBox(height: 12),
                 const _PubLabel('Telefone / WhatsApp'),
                 const SizedBox(height: 6),
-                _PubField(controller: _phoneCtrl, hint: '27 9 9999-9999', inputType: TextInputType.phone, focusColor: brand),
+                _PubField(controller: _phoneCtrl, hint: '(27) 9 9999-9999', inputType: TextInputType.phone, focusColor: brand, inputFormatters: [_phoneMask]),
                 if (_error != null) ...[
                   const SizedBox(height: 10),
                   Text(_error!, style: const TextStyle(color: _DS.danger, fontSize: 13)),
@@ -757,6 +767,8 @@ class _CheckoutScreen extends StatelessWidget {
                   current: deliveryType,
                   brandColor: brand,
                   onChange: onDeliveryTypeChange,
+                  allowDelivery: company.acceptsDelivery,
+                  allowPickup: company.acceptsPickup,
                 ),
                 const SizedBox(height: 10),
 
@@ -2857,12 +2869,14 @@ class _PubField extends StatelessWidget {
   final TextInputType inputType;
   final int maxLines;
   final Color focusColor;
+  final List<TextInputFormatter>? inputFormatters;
   const _PubField({
     required this.controller,
     required this.hint,
     this.inputType = TextInputType.text,
     this.maxLines = 1,
     this.focusColor = _DS.brandBlue,
+    this.inputFormatters,
   });
 
   @override
@@ -2871,6 +2885,7 @@ class _PubField extends StatelessWidget {
       controller: controller,
       keyboardType: inputType,
       maxLines: maxLines,
+      inputFormatters: inputFormatters,
       style: const TextStyle(fontSize: 14, color: _DS.ink),
       decoration: InputDecoration(
         hintText: hint,

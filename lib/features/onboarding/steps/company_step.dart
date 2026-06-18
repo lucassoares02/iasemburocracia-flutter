@@ -5,10 +5,12 @@ import 'package:flutter_multi_formatter/formatters/masked_input_formatter.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:portal_assoc/features/companies/companies_model.dart';
 import 'package:portal_assoc/features/companies/companies_repository.dart';
+import 'package:portal_assoc/features/companies/widgets/banner_crop_dialog.dart';
 import 'package:portal_assoc/features/onboarding/setup_validation_service.dart';
 import 'package:portal_assoc/features/onboarding/widgets/onboarding_design.dart';
 import 'package:portal_assoc/features/onboarding/widgets/setup_horizontal_timeline.dart';
 import 'package:portal_assoc/features/onboarding/widgets/setup_step_container.dart';
+import 'package:portal_assoc/shared/widgets/upload_validation.dart';
 
 const _kSwatches = <Color>[
   Color(0xFF1C1C1E),
@@ -41,14 +43,17 @@ class _CompanyStepState extends State<CompanyStep> {
   final _descCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _logoCtrl = TextEditingController();
+  final _bannerCtrl = TextEditingController();
   final _hexCtrl = TextEditingController();
   final _repo = CompaniesRepository();
 
   Color? _selectedColor;
   bool _uploading = false;
+  bool _uploadingBanner = false;
   bool _saving = false;
   String? _serverError;
   String? _logoError;
+  String? _bannerError;
 
   @override
   void initState() {
@@ -58,6 +63,7 @@ class _CompanyStepState extends State<CompanyStep> {
     _descCtrl.text = c?.description ?? '';
     _phoneCtrl.text = c?.phone ?? '';
     _logoCtrl.text = c?.logoUrl ?? '';
+    _bannerCtrl.text = c?.bannerUrl ?? '';
     _selectedColor = _parseHex(c?.brandColor);
     _hexCtrl.text = (c?.brandColor ?? '').replaceAll('#', '');
   }
@@ -68,6 +74,7 @@ class _CompanyStepState extends State<CompanyStep> {
     _descCtrl.dispose();
     _phoneCtrl.dispose();
     _logoCtrl.dispose();
+    _bannerCtrl.dispose();
     _hexCtrl.dispose();
     super.dispose();
   }
@@ -101,13 +108,16 @@ class _CompanyStepState extends State<CompanyStep> {
     if (result == null || result.files.isEmpty) return;
 
     final f = result.files.first;
-    if (f.bytes == null || f.bytes!.isEmpty) {
-      setState(() => _logoError = 'Arquivo selecionado está vazio. Tente outra imagem.');
-      return;
-    }
-    // 10 MB — alinhado com o limite do servidor (multer fileSize).
-    if (f.bytes!.lengthInBytes > 10 * 1024 * 1024) {
-      setState(() => _logoError = 'A imagem é muito grande. O limite é de 10 MB.');
+    // Validação preventiva (tamanho/formato) ANTES de enviar — evita o 413.
+    final validation = validateImageUpload(f);
+    if (!validation.ok) {
+      if (!mounted) return;
+      await showUploadErrorDialog(
+        context,
+        title: validation.title!,
+        message: validation.message!,
+        fileBytes: validation.fileBytes,
+      );
       return;
     }
     final ext = (f.extension ?? '').toLowerCase();
@@ -157,6 +167,80 @@ class _CompanyStepState extends State<CompanyStep> {
     }
   }
 
+  Future<void> _uploadBanner() async {
+    setState(() => _bannerError = null);
+
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+    } catch (e) {
+      if (mounted) setState(() => _bannerError = 'Não foi possível abrir o seletor de arquivos.');
+      return;
+    }
+    if (result == null || result.files.isEmpty) return;
+
+    final f = result.files.first;
+    // Validação preventiva (tamanho/formato) ANTES do recorte/upload — evita o
+    // 413 do backend e dá feedback claro com o tamanho encontrado.
+    final validation = validateImageUpload(f);
+    if (!validation.ok) {
+      if (!mounted) return;
+      await showUploadErrorDialog(
+        context,
+        title: validation.title!,
+        message: validation.message!,
+        fileBytes: validation.fileBytes,
+      );
+      return;
+    }
+
+    // O banner é exibido em 21:9 — abre o editor de recorte antes de enviar.
+    if (!mounted) return;
+    final cropped = await showBannerCropDialog(context, f.bytes!);
+    if (cropped == null) return; // usuário cancelou
+
+    setState(() => _uploadingBanner = true);
+    try {
+      final resp = await _repo.uploadCompanyImage(cropped, 'banner.png', 'image/png', type: 'banner');
+      if (!resp.success) {
+        if (mounted) {
+          setState(() => _bannerError = (resp.message.isNotEmpty)
+              ? 'Falha no upload: ${resp.message}'
+              : 'Falha no upload da imagem. Tente novamente.');
+        }
+        return;
+      }
+      final data = resp.data;
+      String? url;
+      if (data is Map) {
+        final raw = data['url'];
+        if (raw is String) url = raw;
+      }
+      if (url == null || url.isEmpty) {
+        if (mounted) {
+          setState(() => _bannerError = 'O servidor não retornou a URL da imagem. Tente novamente.');
+        }
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _bannerCtrl.text = url!;
+          _bannerError = null;
+          _serverError = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _bannerError = 'Erro ao enviar imagem: ${e.toString().replaceFirst('Exception: ', '')}');
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingBanner = false);
+    }
+  }
+
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_logoCtrl.text.trim().isEmpty) {
@@ -181,7 +265,7 @@ class _CompanyStepState extends State<CompanyStep> {
         'status': base?.status,
         'logo_url': _logoCtrl.text.trim().isEmpty ? null : _logoCtrl.text.trim(),
         'brand_color': hex.isEmpty ? null : '#${hex.toUpperCase()}',
-        'banner_url': base?.bannerUrl,
+        'banner_url': _bannerCtrl.text.trim().isEmpty ? null : _bannerCtrl.text.trim(),
         'ai_name': base?.aiName,
         'ai_gender': base?.aiGender,
         'ai_personality': base?.aiPersonality,
@@ -229,6 +313,17 @@ class _CompanyStepState extends State<CompanyStep> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _BannerCard(
+              bannerUrl: _bannerCtrl.text.trim(),
+              uploading: _uploadingBanner,
+              errorMessage: _bannerError,
+              onUpload: _uploadBanner,
+              onRemove: () => setState(() {
+                _bannerCtrl.text = '';
+                _bannerError = null;
+              }),
+            ),
+            const SizedBox(height: 16),
             _LogoCard(
               logoUrl: _logoCtrl.text.trim(),
               uploading: _uploading,
@@ -287,6 +382,228 @@ class _CompanyStepState extends State<CompanyStep> {
               },
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Banner card ──────────────────────────────────────────────────────────────
+
+class _BannerCard extends StatefulWidget {
+  final String bannerUrl;
+  final bool uploading;
+  final String? errorMessage;
+  final VoidCallback onUpload;
+  final VoidCallback onRemove;
+
+  const _BannerCard({
+    required this.bannerUrl,
+    required this.uploading,
+    required this.errorMessage,
+    required this.onUpload,
+    required this.onRemove,
+  });
+
+  @override
+  State<_BannerCard> createState() => _BannerCardState();
+}
+
+class _BannerCardState extends State<_BannerCard> {
+  static const double _bannerHeight = 150;
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasBanner = widget.bannerUrl.isNotEmpty;
+    final hasError = (widget.errorMessage ?? '').isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: OnboardingDS.surface,
+        borderRadius: BorderRadius.circular(OnboardingDS.rXl),
+        border: Border.all(
+          color: hasError ? OnboardingDS.danger.withValues(alpha: 0.45) : OnboardingDS.hairlineSoft,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(LucideIcons.image, size: 16, color: OnboardingDS.stone),
+              SizedBox(width: 8),
+              Text(
+                'Banner do cardápio',
+                style: TextStyle(fontSize: 14, color: OnboardingDS.ink, letterSpacing: -0.2),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Opcional. Exibido no topo do seu cardápio público.',
+            style: TextStyle(fontSize: 12, color: OnboardingDS.stone),
+          ),
+          const SizedBox(height: 8),
+          UploadHints(recommendation: 'Recomendado: ${kBannerOutW.toInt()} × ${kBannerOutH.toInt()} px (21:9)'),
+          const SizedBox(height: 12),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hover = true),
+            onExit: (_) => setState(() => _hover = false),
+            child: GestureDetector(
+              onTap: (!widget.uploading && !hasBanner) ? widget.onUpload : null,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(OnboardingDS.rLg),
+                child: SizedBox(
+                  height: _bannerHeight,
+                  width: double.infinity,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (hasBanner)
+                        Image.network(
+                          widget.bannerUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _placeholder(),
+                        )
+                      else
+                        _placeholder(),
+                      if (widget.uploading)
+                        _loadingOverlay()
+                      else if (_hover)
+                        _hoverOverlay(hasBanner),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            child: hasError
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                      decoration: BoxDecoration(
+                        color: OnboardingDS.danger.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: OnboardingDS.danger.withValues(alpha: 0.25)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(LucideIcons.alertCircle, size: 14, color: OnboardingDS.danger),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              widget.errorMessage!,
+                              style: const TextStyle(fontSize: 12, color: OnboardingDS.danger, height: 1.35),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _placeholder() {
+    return Container(
+      color: const Color(0xFFF1F2F4),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.imagePlus, size: 28, color: Colors.grey[500]),
+            const SizedBox(height: 8),
+            const Text(
+              'Adicionar banner',
+              style: TextStyle(fontSize: 13, color: OnboardingDS.steel),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${kBannerOutW.toInt()} × ${kBannerOutH.toInt()} px · 21:9',
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _loadingOverlay() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.45),
+      child: const Center(
+        child: SizedBox(
+          width: 26,
+          height: 26,
+          child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white)),
+        ),
+      ),
+    );
+  }
+
+  Widget _hoverOverlay(bool hasBanner) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.42),
+      child: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _overlayButton(
+              icon: hasBanner ? LucideIcons.refreshCw : LucideIcons.upload,
+              label: hasBanner ? 'Trocar banner' : 'Enviar banner',
+              onTap: widget.onUpload,
+              filled: true,
+            ),
+            if (hasBanner) ...[
+              const SizedBox(width: 8),
+              _overlayButton(
+                icon: LucideIcons.trash2,
+                label: 'Remover',
+                onTap: widget.onRemove,
+                filled: false,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _overlayButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    required bool filled,
+  }) {
+    final fg = filled ? OnboardingDS.ink : Colors.white;
+    final bg = filled ? Colors.white : Colors.transparent;
+    return Material(
+      color: bg,
+      shape: StadiumBorder(side: filled ? BorderSide.none : const BorderSide(color: Colors.white70)),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: fg),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(fontSize: 12, color: fg, fontWeight: FontWeight.w500)),
+            ],
+          ),
         ),
       ),
     );

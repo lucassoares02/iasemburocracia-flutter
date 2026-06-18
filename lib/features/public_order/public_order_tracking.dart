@@ -84,6 +84,14 @@ class _TrackingContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final isPickup = order.deliveryType == 'pickup';
     final showDeliveryMap = !isPickup && order.status == 4 && order.deliveryLat != null && order.deliveryLng != null;
+    // Retirada no local: assim que o pedido é aceito (sai de "aguardando" e não
+    // foi cancelado/rejeitado), mostra o endereço do estabelecimento + mapa.
+    final showPickupLocation = isPickup &&
+        order.status != 1 &&
+        order.status != 6 &&
+        order.status != 7 &&
+        order.companyLat != null &&
+        order.companyLng != null;
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
@@ -101,6 +109,14 @@ class _TrackingContent extends StatelessWidget {
             brandColor: brandColor,
           ),
           const SizedBox(height: 16),
+        ],
+        if (showPickupLocation) ...[
+          _PickupLocationCard(order: order, brandColor: brandColor),
+          const SizedBox(height: 16),
+        ],
+        if (order.tag != null) ...[
+          _OrderTagCard(tag: order.tag!, brandColor: brandColor),
+          const SizedBox(height: 12),
         ],
         _OrderItemsCard(order: order, brandColor: brandColor),
         const SizedBox(height: 12),
@@ -302,7 +318,9 @@ class _HorizontalOrderStepper extends StatelessWidget {
     required this.brandColor,
   });
 
-  bool get _isTakeaway => order.status == 8 || order.status == 9 || order.statusHistory.any((s) => s.status == 8 || s.status == 9);
+  // Retirada: pedidos do tipo pickup OU que já passaram por pronto/retirado.
+  bool get _isTakeaway =>
+      order.deliveryType == 'pickup' || order.status == 8 || order.status == 9 || order.statusHistory.any((s) => s.status == 8 || s.status == 9);
 
   bool get _isCancelled => order.status == 6 || order.status == 7;
 
@@ -468,7 +486,8 @@ class _HorizontalOrderStepper extends StatelessWidget {
   }) {
     const h = 6.0;
     if (isCurrent) {
-      return _ActiveStepBar(color: color, height: h);
+      // Barra de progresso ativa sempre em verde (vermelho se cancelado).
+      return _ActiveStepBar(color: _isCancelled ? _DS.danger : _DS.successAccent, height: h);
     }
     final bg = _isCancelled
         ? _DS.danger.withValues(alpha: 0.35)
@@ -649,6 +668,79 @@ class _TrackingSummaryCard extends StatelessWidget {
             child: Divider(height: 1, color: _DS.hairlineSoft),
           ),
           _row('Total', _currFmt.format(order.total), emphasis: true),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Código do pedido (tag) ──────────────────────────────────────────────────
+class _OrderTagCard extends StatelessWidget {
+  final String tag;
+  final Color brandColor;
+  const _OrderTagCard({required this.tag, required this.brandColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _DS.canvas,
+        borderRadius: BorderRadius.circular(_DS.rXl),
+        border: Border.all(color: _DS.hairlineSoft),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: brandColor.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.tag_rounded, size: 20, color: brandColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'CÓDIGO DO PEDIDO',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: _DS.steel,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  tag,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _DS.ink,
+                    letterSpacing: 2.0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Copiar código',
+            icon: const Icon(Icons.copy_rounded, size: 18, color: _DS.steel),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: tag));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Código $tag copiado'),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -1369,6 +1461,114 @@ class _DeliveryMapCard extends StatelessWidget {
                   ),
                 );
               },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Pickup location (retirada no local — endereço + mapa do restaurante) ────
+class _PickupLocationCard extends StatelessWidget {
+  final PublicOrderDetailModel order;
+  final Color brandColor;
+
+  const _PickupLocationCard({required this.order, required this.brandColor});
+
+  double get _lat => order.companyLat!;
+  double get _lng => order.companyLng!;
+
+  bool get _isReady => order.status == 8; // pronto para retirada
+
+  void _openMaps() {
+    // dir/ abre o app do Google Maps com rota até o restaurante.
+    _jsOpenTab('https://www.google.com/maps/dir/?api=1&destination=$_lat,$_lng', '_blank');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final address = (order.companyAddress ?? '').trim();
+    final companyName = (order.companyName ?? '').trim();
+    final title = _isReady ? 'Pronto! Retire seu pedido em' : 'Endereço para retirada';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _DS.canvas,
+        borderRadius: BorderRadius.circular(_DS.rXl),
+        border: Border.all(color: _DS.hairlineSoft),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: brandColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.storefront_outlined, size: 16, color: brandColor),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(fontSize: 13, color: _DS.ink),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        address.isNotEmpty
+                            ? address
+                            : (companyName.isNotEmpty ? companyName : 'Endereço do estabelecimento'),
+                        style: const TextStyle(fontSize: 12, color: _DS.steel, height: 1.4),
+                      ),
+                      if (!_isReady) ...[
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Avisaremos aqui quando estiver pronto para retirada.',
+                          style: TextStyle(fontSize: 11, color: _DS.stone, height: 1.4),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Mapa interativo do restaurante (Google Maps JS, com marcador).
+          SizedBox(
+            height: 180,
+            width: double.infinity,
+            child: GoogleMapWidget(lat: _lat, lng: _lng, height: 180),
+          ),
+          // Botão "Como chegar" — abre o app do Google Maps com a rota.
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _openMaps,
+                icon: Icon(Icons.directions_rounded, size: 16, color: brandColor),
+                label: Text(
+                  'Como chegar',
+                  style: TextStyle(fontSize: 13, color: brandColor, fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: brandColor.withValues(alpha: 0.4)),
+                  shape: const StadiumBorder(),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                ),
+              ),
             ),
           ),
         ],

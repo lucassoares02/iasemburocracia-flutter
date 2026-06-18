@@ -72,6 +72,7 @@ class ClientEntity {
 
 class OrderEntity {
   int? id;
+  String? tag;
   int? companyId;
   int? clientId;
   String? clientName;
@@ -89,6 +90,7 @@ class OrderEntity {
 
   OrderEntity({
     this.id,
+    this.tag,
     this.companyId,
     this.clientId,
     this.clientName,
@@ -111,6 +113,11 @@ class OrderSummaryEntity {
   int inProgress;
   int completed;
   int cancelled;
+  double todayValue;
+  double totalValue;
+  double inProgressValue;
+  double completedValue;
+  double cancelledValue;
 
   OrderSummaryEntity({
     required this.today,
@@ -118,5 +125,10 @@ class OrderSummaryEntity {
     required this.inProgress,
     required this.completed,
     required this.cancelled,
+    this.todayValue = 0,
+    this.totalValue = 0,
+    this.inProgressValue = 0,
+    this.completedValue = 0,
+    this.cancelledValue = 0,
   });
 }

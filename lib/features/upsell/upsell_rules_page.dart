@@ -129,7 +129,11 @@ class _UpsellRulesPageState extends State<UpsellRulesPage> {
                     ]),
                   );
                 }
-                final rows = (state as SuccessState).data as List<UpsellRuleModel>;
+                // Cast defensivo: após excluir (especialmente o último item) a
+                // API pode devolver um payload que não é List; um `as` rígido
+                // lançaria e deixaria a tela branca.
+                final raw = (state as SuccessState).data;
+                final rows = raw is List ? raw.whereType<UpsellRuleModel>().toList() : <UpsellRuleModel>[];
                 if (rows.isEmpty) {
                   return _UpsellEmptyState(onNew: () => _openForm());
                 }
@@ -291,8 +295,6 @@ class _UpsellRuleCardState extends State<_UpsellRuleCard> {
               const SizedBox(width: 12),
               // Actions
               Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                _IconBtn(icon: LucideIcons.pencil, tooltip: 'Editar', onTap: widget.onEdit),
-                const SizedBox(height: 6),
                 _IconBtn(icon: LucideIcons.copy, tooltip: 'Duplicar', onTap: widget.onDuplicate),
                 const SizedBox(height: 6),
                 _IconBtn(

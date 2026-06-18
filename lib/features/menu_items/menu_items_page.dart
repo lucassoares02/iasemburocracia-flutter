@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:js_interop';
 
 import 'package:csv/csv.dart';
 import 'package:excel/excel.dart' as xls;
@@ -14,14 +16,19 @@ import 'package:portal_assoc/features/menu_items/menu_items_model.dart';
 import 'package:portal_assoc/features/product_options/product_options_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:toastification/toastification.dart';
 
 import '../../core/providers/onboarding_provider.dart';
 import '../../core/state/app_state.dart';
+import 'ifood_import_dialog.dart';
 import 'menu_items_controller.dart';
 import 'menu_items_repository.dart';
 import 'menu_items_usecase.dart';
 
 part 'menu_items_import.dart';
+
+@JS('window.open')
+external void _jsWindowOpen(String url, String target);
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 
@@ -110,6 +117,11 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
   List<MenuItemsModel> _all = [];
   List<MenuItemsModel> _filtered = [];
 
+  // Filtro por categoria (mesma fonte do dropdown "Categoria" em Editar Produto).
+  final MenuCategoriesRepository _catRepo = MenuCategoriesRepository();
+  List<MenuCategoriesModel> _categories = [];
+  int? _selectedCategoryId; // null = todas as categorias
+
   late AnimationController _anim;
   late Animation<double> _fade;
 
@@ -117,10 +129,22 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
   void initState() {
     super.initState();
     _ctrl.findAll();
+    _loadCategories();
     _search.addListener(_filter);
     _anim = AnimationController(vsync: this, duration: const Duration(milliseconds: 280));
     _fade = CurvedAnimation(parent: _anim, curve: Curves.easeOut);
     _anim.forward();
+  }
+
+  Future<void> _loadCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    final companyId = prefs.getInt('company') ?? 0;
+    if (companyId == 0) return;
+    final resp = await _catRepo.findByCompany(companyId);
+    if (!mounted) return;
+    if (resp.success && resp.data is List) {
+      setState(() => _categories = (resp.data as List).cast<MenuCategoriesModel>());
+    }
   }
 
   @override
@@ -130,15 +154,26 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
     super.dispose();
   }
 
-  void _filter() {
-    final q = _search.text.toLowerCase().trim();
+  void _filter() => setState(() => _filtered = _applyFilters(_all));
+
+  void _selectCategory(int? categoryId) {
     setState(() {
-      _filtered = q.isEmpty
-          ? _all
-          : _all.where((e) {
-              return (e.name?.toLowerCase().contains(q) ?? false) || (e.description?.toLowerCase().contains(q) ?? false) || (e.sku?.toLowerCase().contains(q) ?? false);
-            }).toList();
+      _selectedCategoryId = categoryId;
+      _filtered = _applyFilters(_all);
     });
+  }
+
+  // Aplica busca textual + filtro de categoria sobre a lista de origem.
+  List<MenuItemsModel> _applyFilters(List<MenuItemsModel> source) {
+    final q = _search.text.toLowerCase().trim();
+    return source.where((e) {
+      final matchesCategory = _selectedCategoryId == null || e.categoryId == _selectedCategoryId;
+      final matchesQuery = q.isEmpty ||
+          (e.name?.toLowerCase().contains(q) ?? false) ||
+          (e.description?.toLowerCase().contains(q) ?? false) ||
+          (e.sku?.toLowerCase().contains(q) ?? false);
+      return matchesCategory && matchesQuery;
+    }).toList();
   }
 
   void _openForm({MenuItemsModel? item}) {
@@ -150,9 +185,11 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
         controller: _ctrl,
         onDeleteRequest: item != null ? () => _openDeleteConfirm(item) : null,
       ),
-    );
+      // O formulário pode criar novas categorias; recarrega o filtro ao fechar.
+    ).then((_) => _loadCategories());
   }
 
+  // ignore: unused_element
   Future<void> _openImport() async {
     final prefs = await SharedPreferences.getInstance();
     final companyId = prefs.getInt('company') ?? 0;
@@ -165,6 +202,43 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
         catRepo: MenuCategoriesRepository(),
         companyId: companyId,
       ),
+    );
+  }
+
+  Future<void> _openIfoodImport() async {
+    final prefs = await SharedPreferences.getInstance();
+    final companyId = prefs.getInt('company') ?? 0;
+    if (!mounted) return;
+    await showIfoodImportDialog(
+      context,
+      companyId: companyId,
+      onImported: () => _ctrl.findAll(),
+    );
+  }
+
+  Future<void> _openPublicOrderTab() async {
+    final prefs = await SharedPreferences.getInstance();
+    final companyId = prefs.getInt('company') ?? 0;
+    if (companyId <= 0) return;
+    final url = '${Uri.base.origin}/order?company=$companyId';
+    _jsWindowOpen(url, '_blank');
+  }
+
+  Future<void> _shareMenuLink() async {
+    final prefs = await SharedPreferences.getInstance();
+    final companyId = prefs.getInt('company') ?? 0;
+    if (companyId <= 0) return;
+    final url = '${Uri.base.origin}/order?company=$companyId';
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    toastification.show(
+      type: ToastificationType.success,
+      style: ToastificationStyle.flat,
+      title: const Text('Link do cardápio copiado!'),
+      description: Text(url),
+      alignment: Alignment.bottomRight,
+      autoCloseDuration: const Duration(seconds: 3),
+      animationDuration: const Duration(milliseconds: 300),
     );
   }
 
@@ -204,23 +278,9 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
       'sku': item.sku,
       'display_order': item.displayOrder,
       'prep_time_minutes': item.prepTimeMinutes,
+      'image_url': item.imageUrl,
     });
     await _ctrl.toggle(toggled);
-  }
-
-  MenuItemsModel _cloneItem(MenuItemsModel src) {
-    return MenuItemsModel.fromJson({
-      'name': '${src.name} (cópia)',
-      'description': src.description,
-      'category_id': src.categoryId,
-      'company_id': src.companyId,
-      'price': src.price,
-      'available': src.available,
-      'featured': false,
-      'sku': null,
-      'display_order': src.displayOrder,
-      'prep_time_minutes': src.prepTimeMinutes,
-    });
   }
 
   @override
@@ -237,11 +297,13 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
               child: ValueListenableBuilder<StateApp>(
                 valueListenable: _ctrl.stateFindAll,
                 builder: (context, state, _) {
-                  if (state is StartState || state is LoadingState) return _buildSkeleton();
+                  if (state is StartState || state is LoadingState) {
+                    return _buildSkeleton();
+                  }
                   if (state is ErrorState) return _buildError(state.message);
                   if (state is SuccessState) {
                     _all = List<MenuItemsModel>.from(state.data);
-                    if (_search.text.isEmpty) _filtered = _all;
+                    _filtered = _applyFilters(_all);
                     if (_filtered.isEmpty) return _buildEmpty();
                     return _buildGrid(_filtered);
                   }
@@ -304,18 +366,48 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
               );
             },
           ),
-          const SizedBox(width: _DS.s4),
+          // const SizedBox(width: _DS.s4),
+          // OutlinedButton.icon(
+          //   onPressed: _openImport,
+          //   icon: const Icon(LucideIcons.upload, size: 14),
+          //   label: const Text('Importar'),
+          //   style: OutlinedButton.styleFrom(
+          //     foregroundColor: _DS.ink,
+          //     side: const BorderSide(color: _DS.hairline),
+          //     shape: const StadiumBorder(),
+          //     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          //     textStyle: const TextStyle(
+          //       fontSize: 13,
+          //     ),
+          //   ),
+          // ),
+          const SizedBox(width: _DS.s2),
           OutlinedButton.icon(
-            onPressed: _openImport,
-            icon: const Icon(LucideIcons.upload, size: 14),
-            label: const Text('Importar'),
+            onPressed: _openPublicOrderTab,
+            icon: const Icon(LucideIcons.externalLink, size: 16),
+            label: const Text('Cardápio online'),
             style: OutlinedButton.styleFrom(
               foregroundColor: _DS.ink,
               side: const BorderSide(color: _DS.hairline),
               shape: const StadiumBorder(),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               textStyle: const TextStyle(
-                fontSize: 13,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          const SizedBox(width: _DS.s2),
+          OutlinedButton.icon(
+            onPressed: _shareMenuLink,
+            icon: const Icon(LucideIcons.share2, size: 16),
+            label: const Text('Compartilhar'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _DS.ink,
+              side: const BorderSide(color: _DS.hairline),
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              textStyle: const TextStyle(
+                fontSize: 14,
               ),
             ),
           ),
@@ -344,7 +436,58 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
   Widget _buildSearchBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(_DS.s6, 0, _DS.s6, _DS.s4),
-      child: _SearchInput(controller: _search),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _SearchInput(controller: _search),
+          if (_categories.isNotEmpty) ...[
+            const SizedBox(height: _DS.s3),
+            _buildCategoryFilter(),
+          ],
+          const SizedBox(height: _DS.s3),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: _openIfoodImport,
+              icon: const Icon(LucideIcons.sparkles, size: 16),
+              label: const Text('Preenchimento Automático'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _DS.brandBlue,
+                side: const BorderSide(color: _DS.brandBlue),
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                textStyle: const TextStyle(fontSize: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryFilter() {
+    return SizedBox(
+      height: 34,
+      child: ScrollConfiguration(
+        behavior: const ScrollBehavior().copyWith(scrollbars: false),
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          children: [
+            _CategoryChip(
+              label: 'Todas',
+              selected: _selectedCategoryId == null,
+              onTap: () => _selectCategory(null),
+            ),
+            ..._categories.map(
+              (c) => _CategoryChip(
+                label: c.name ?? '—',
+                selected: _selectedCategoryId == c.id,
+                onTap: () => _selectCategory(c.id),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -364,10 +507,9 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
         itemCount: items.length,
         itemBuilder: (context, i) => _MenuItemCard(
           item: items[i],
-          onEdit: () => _openForm(item: items[i]),
+          onOpen: () => _openForm(item: items[i]),
           onDelete: () => _openDeleteConfirm(items[i]),
           onToggle: () => _toggleItem(items[i]),
-          onDuplicate: () => _openForm(item: _cloneItem(items[i])),
           onOptions: () => _openOptions(items[i]),
         ),
       ),
@@ -494,18 +636,16 @@ class _MenuItemsPageState extends State<MenuItemsPage> with SingleTickerProvider
 class _MenuItemCard extends StatefulWidget {
   const _MenuItemCard({
     required this.item,
-    required this.onEdit,
+    required this.onOpen,
     required this.onDelete,
     required this.onToggle,
-    required this.onDuplicate,
     required this.onOptions,
   });
 
   final MenuItemsModel item;
-  final VoidCallback onEdit;
+  final VoidCallback onOpen;
   final VoidCallback onDelete;
   final VoidCallback onToggle;
-  final VoidCallback onDuplicate;
   final VoidCallback onOptions;
 
   @override
@@ -525,180 +665,227 @@ class _MenuItemCardState extends State<_MenuItemCard> {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        decoration: BoxDecoration(
-          color: _DS.canvas,
-          borderRadius: BorderRadius.circular(_DS.rXl),
-          border: Border.all(color: _hovered ? _DS.hairlineStrong : _DS.hairline),
-          boxShadow: _hovered ? _DS.shadowCard : _DS.shadowSm,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Image area
-            Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(_DS.rXl),
-                    topRight: Radius.circular(_DS.rXl),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onOpen,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          decoration: BoxDecoration(
+            color: _DS.canvas,
+            borderRadius: BorderRadius.circular(_DS.rXl),
+            border: Border.all(color: _hovered ? _DS.hairlineStrong : _DS.hairline),
+            boxShadow: _hovered ? _DS.shadowCard : _DS.shadowSm,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Image area
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(_DS.rXl),
+                      topRight: Radius.circular(_DS.rXl),
+                    ),
+                    child: Container(
+                      height: 148,
+                      width: double.infinity,
+                      color: _DS.surface,
+                      child: _ProductImage(
+                        imageUrl: item.imageUrl,
+                        featured: featured,
+                        disabled: !available,
+                      ),
+                    ),
                   ),
-                  child: Container(
-                    height: 148,
-                    width: double.infinity,
-                    color: _DS.surface,
-                    child: item.imageUrl != null
-                        ? Image.network(
-                            item.imageUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _ImagePlaceholder(featured: featured),
-                          )
-                        : _ImagePlaceholder(featured: featured),
-                  ),
-                ),
-                if (featured)
+                  if (!available || featured)
+                    Positioned(
+                      top: _DS.s2,
+                      left: _DS.s2,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: available ? _DS.brandYellow : _DS.charcoal,
+                          borderRadius: BorderRadius.circular(_DS.rFull),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              available ? LucideIcons.star : LucideIcons.eyeOff,
+                              size: 10,
+                              color: available ? _DS.ink : Colors.white,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              available ? 'Destaque' : 'Desativo',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: available ? _DS.ink : Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   Positioned(
                     top: _DS.s2,
-                    left: _DS.s2,
+                    right: _DS.s2,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      width: 10,
+                      height: 10,
                       decoration: BoxDecoration(
-                        color: _DS.brandYellow,
-                        borderRadius: BorderRadius.circular(_DS.rFull),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(LucideIcons.star, size: 10, color: _DS.ink),
-                          SizedBox(width: 4),
-                          Text(
-                            'Destaque',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: _DS.ink,
-                            ),
-                          ),
-                        ],
+                        color: available ? _DS.successAccent : _DS.stone,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: _DS.canvas, width: 2),
                       ),
                     ),
                   ),
-                Positioned(
-                  top: _DS.s2,
-                  right: _DS.s2,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: available ? _DS.successAccent : _DS.stone,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: _DS.canvas, width: 2),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            // Content
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(_DS.s4, _DS.s3, _DS.s4, _DS.s3),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.name ?? 'Sem nome',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: _DS.ink,
-                        letterSpacing: -0.2,
-                        height: 1.3,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: _DS.s1),
-                    Expanded(
-                      child: Text(
-                        item.description ?? '',
+                ],
+              ),
+              // Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(_DS.s4, _DS.s3, _DS.s4, _DS.s3),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name ?? 'Sem nome',
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: _DS.slate,
-                          height: 1.5,
+                          fontSize: 14,
+                          color: _DS.ink,
+                          letterSpacing: -0.2,
+                          height: 1.3,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    // Price + meta row
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            formatCurrency(item.price),
-                            style: const TextStyle(
-                              fontSize: 17,
-                              color: _DS.ink,
-                              letterSpacing: -0.4,
+                      const SizedBox(height: _DS.s1),
+                      Expanded(
+                        child: Text(
+                          item.description ?? '',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: _DS.slate,
+                            height: 1.5,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      // Price + meta row
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              formatCurrency(item.price),
+                              style: const TextStyle(
+                                fontSize: 17,
+                                color: _DS.ink,
+                                letterSpacing: -0.4,
+                              ),
                             ),
                           ),
-                        ),
-                        if (item.prepTimeMinutes != null)
-                          Row(
-                            children: [
-                              const Icon(LucideIcons.clock, size: 11, color: _DS.stone),
-                              const SizedBox(width: 3),
-                              Text(
-                                '${item.prepTimeMinutes}min',
-                                style: const TextStyle(fontSize: 11, color: _DS.stone),
-                              ),
-                            ],
+                          if (item.prepTimeMinutes != null)
+                            Row(
+                              children: [
+                                const Icon(LucideIcons.clock, size: 11, color: _DS.stone),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${item.prepTimeMinutes}min',
+                                  style: const TextStyle(fontSize: 11, color: _DS.stone),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                      // Actions
+                      const SizedBox(height: _DS.s3),
+                      Row(
+                        children: [
+                          _CardAction(
+                            icon: LucideIcons.sliders,
+                            tooltip: 'Opções e adicionais',
+                            onTap: widget.onOptions,
                           ),
-                      ],
-                    ),
-                    // Actions
-                    const SizedBox(height: _DS.s3),
-                    Row(
-                      children: [
-                        _CardAction(
-                          icon: LucideIcons.pencil,
-                          tooltip: 'Editar',
-                          onTap: widget.onEdit,
-                        ),
-                        const SizedBox(width: _DS.s1),
-                        _CardAction(
-                          icon: LucideIcons.sliders,
-                          tooltip: 'Opções e adicionais',
-                          onTap: widget.onOptions,
-                        ),
-                        const SizedBox(width: _DS.s1),
-                        _CardAction(
-                          icon: LucideIcons.copy,
-                          tooltip: 'Duplicar',
-                          onTap: widget.onDuplicate,
-                        ),
-                        const SizedBox(width: _DS.s1),
-                        _CardAction(
-                          icon: available ? LucideIcons.eyeOff : LucideIcons.eye,
-                          tooltip: available ? 'Desativar' : 'Ativar',
-                          onTap: widget.onToggle,
-                        ),
-                        const Spacer(),
-                        _CardAction(
-                          icon: LucideIcons.trash2,
-                          tooltip: 'Excluir',
-                          onTap: widget.onDelete,
-                          danger: true,
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(width: _DS.s1),
+                          _CardAction(
+                            icon: available ? LucideIcons.eyeOff : LucideIcons.eye,
+                            tooltip: available ? 'Desativar' : 'Ativar',
+                            onTap: widget.onToggle,
+                          ),
+                          const Spacer(),
+                          _CardAction(
+                            icon: LucideIcons.trash2,
+                            tooltip: 'Excluir',
+                            onTap: widget.onDelete,
+                            danger: true,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _ProductImage extends StatelessWidget {
+  const _ProductImage({
+    required this.imageUrl,
+    required this.featured,
+    required this.disabled,
+  });
+
+  final String? imageUrl;
+  final bool featured;
+  final bool disabled;
+
+  static const _grayscale = <double>[
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final image = imageUrl != null
+        ? Image.network(
+            imageUrl!,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _ImagePlaceholder(featured: featured),
+          )
+        : _ImagePlaceholder(featured: featured);
+
+    if (!disabled) return image;
+
+    return ColorFiltered(
+      colorFilter: const ColorFilter.matrix(_grayscale),
+      child: image,
     );
   }
 }
@@ -803,6 +990,48 @@ class _Chip extends StatelessWidget {
   }
 }
 
+// ─── Category filter chip ─────────────────────────────────────────────────────
+
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: _DS.s2),
+      child: Material(
+        color: selected ? _DS.ink : _DS.surface,
+        shape: StadiumBorder(
+          side: BorderSide(color: selected ? _DS.ink : _DS.hairline),
+        ),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: selected ? Colors.white : _DS.slate,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Search Input ─────────────────────────────────────────────────────────────
 
 class _SearchInput extends StatefulWidget {
@@ -856,7 +1085,11 @@ class _SearchInputState extends State<_SearchInput> {
               style: const TextStyle(fontSize: 14, color: _DS.ink),
               decoration: const InputDecoration(
                 hintText: 'Buscar por nome, descrição ou SKU...',
-                hintStyle: TextStyle(fontSize: 14, color: _DS.muted),
+                hintStyle: TextStyle(
+                  fontSize: 14,
+                ),
+                filled: true,
+                fillColor: Colors.transparent,
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -1236,8 +1469,8 @@ class _MenuItemFormDialogState extends State<_MenuItemFormDialog> {
       elevation: 0,
       insetPadding: const EdgeInsets.symmetric(horizontal: _DS.s6, vertical: _DS.s8),
       child: Container(
-        width: 560,
-        constraints: const BoxConstraints(maxHeight: 800),
+        width: 720,
+        constraints: const BoxConstraints(maxHeight: 760),
         decoration: BoxDecoration(
           color: _DS.canvas,
           borderRadius: BorderRadius.circular(_DS.rXxxl),
@@ -1584,7 +1817,9 @@ class _MenuItemFormDialogState extends State<_MenuItemFormDialog> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Preço obrigatório';
-                  if (double.tryParse(v.replaceAll(',', '.')) == null) return 'Valor inválido';
+                  if (double.tryParse(v.replaceAll(',', '.')) == null) {
+                    return 'Valor inválido';
+                  }
                   return null;
                 },
               ),

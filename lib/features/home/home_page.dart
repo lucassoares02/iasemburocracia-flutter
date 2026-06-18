@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:portal_assoc/core/providers/auth_provider.dart';
 import 'package:portal_assoc/core/providers/onboarding_provider.dart';
 import 'package:portal_assoc/features/auth/presentation/auth_controller.dart';
 import 'package:portal_assoc/features/onboarding/setup_wizard_view.dart';
@@ -143,6 +144,12 @@ class _HomePageState extends State<HomePage> {
 
   AuthController? _authController;
 
+  // Rastreia se o wizard de onboarding está sendo exibido nesta sessão. Começa
+  // como `true` (assume concluído) para que usuários recorrentes não disparem um
+  // reload redundante ao entrar no /home; só vira `false` quando o wizard é
+  // renderizado, habilitando o reload na transição wizard → dashboard.
+  bool _wasOnboardingComplete = true;
+
   @override
   void initState() {
     super.initState();
@@ -154,6 +161,17 @@ class _HomePageState extends State<HomePage> {
       // em business_information, edição de empresa, cardápio etc.).
       context.read<OnboardingProvider>().refresh(silent: true);
     });
+  }
+
+  /// Recarrega o estado completo da aplicação após a conclusão do onboarding:
+  /// empresas (header/dropdown) e dashboard (logo, cor da marca, KPIs). Assim
+  /// o dashboard reflete imediatamente as informações recém-configuradas.
+  Future<void> _reloadAfterOnboarding() async {
+    _authController?.findCompanies();
+    if (!mounted) return;
+    await context.read<AuthProvider>().loadCompany();
+    if (!mounted) return;
+    controller.loadDashboard();
   }
 
   @override
@@ -187,10 +205,22 @@ class _HomePageState extends State<HomePage> {
     // wizard de configuração inicial. Após concluído, mostra o dashboard
     // real com KPIs, gráficos, etc.
     if (!onboarding.isCompleted) {
+      _wasOnboardingComplete = false;
       return const Scaffold(
         backgroundColor: _DS.surface,
         body: SetupWizardView(),
       );
+    }
+
+    // Transição wizard → dashboard: recarrega o estado completo da aplicação
+    // (empresas + dashboard), garantindo que logo, cor da marca e demais dados
+    // recém-configurados apareçam no dashboard sem precisar recarregar a página.
+    if (!_wasOnboardingComplete) {
+      _wasOnboardingComplete = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _reloadAfterOnboarding();
+      });
     }
 
     return Scaffold(

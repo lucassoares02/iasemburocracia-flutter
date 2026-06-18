@@ -116,18 +116,25 @@ class _DashboardHeader extends StatelessWidget {
 
   Widget _logoAvatar(String url) {
     return Container(
-      width: 56,
-      height: 56,
+      width: 64,
+      height: 64,
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.18),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.6)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      clipBehavior: Clip.antiAlias,
       child: url.isNotEmpty
           ? Image.network(
               url,
-              fit: BoxFit.cover,
+              fit: BoxFit.contain,
               errorBuilder: (_, __, ___) => _logoFallback(),
             )
           : _logoFallback(),
@@ -140,9 +147,10 @@ class _DashboardHeader extends StatelessWidget {
     return Center(
       child: Text(
         initial,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 24,
-          color: Colors.white,
+          color: brand,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

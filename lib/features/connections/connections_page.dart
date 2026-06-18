@@ -131,12 +131,30 @@ IconData _integrationIcon(String? integration) {
 
 String _sanitizeInstanceName(String input) {
   const replacements = {
-    'á': 'a', 'à': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a',
-    'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
-    'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
-    'ó': 'o', 'ò': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o',
-    'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
-    'ç': 'c', 'ñ': 'n',
+    'á': 'a',
+    'à': 'a',
+    'â': 'a',
+    'ã': 'a',
+    'ä': 'a',
+    'é': 'e',
+    'è': 'e',
+    'ê': 'e',
+    'ë': 'e',
+    'í': 'i',
+    'ì': 'i',
+    'î': 'i',
+    'ï': 'i',
+    'ó': 'o',
+    'ò': 'o',
+    'ô': 'o',
+    'õ': 'o',
+    'ö': 'o',
+    'ú': 'u',
+    'ù': 'u',
+    'û': 'u',
+    'ü': 'u',
+    'ç': 'c',
+    'ñ': 'n',
   };
   var s = input.toLowerCase();
   for (final entry in replacements.entries) {
@@ -471,7 +489,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
               return FilledButton.icon(
                 onPressed: () => _createConnection(company),
                 icon: const Icon(LucideIcons.plus, size: 16),
-                label: const Text('+ Nova conexão'),
+                label: const Text('Nova conexão'),
                 style: FilledButton.styleFrom(
                   backgroundColor: _DS.ink,
                   foregroundColor: Colors.white,
@@ -1195,9 +1213,7 @@ class _UpdateWorkflowProgressDialog extends StatelessWidget {
                               _labels[i],
                               style: TextStyle(
                                 fontSize: 13,
-                                color: step > i
-                                    ? _DS.successText
-                                    : (step == i ? _DS.ink : _DS.stone),
+                                color: step > i ? _DS.successText : (step == i ? _DS.ink : _DS.stone),
                                 height: 1.4,
                               ),
                             ),

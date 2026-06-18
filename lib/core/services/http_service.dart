@@ -152,11 +152,19 @@ class HttpService {
         message: 'Upload successful',
         data: response.data,
       );
+    } on DioException catch (e) {
+      // Mensagens amigáveis — nunca expor stacktrace/erro técnico ao usuário.
+      log('uploadFile error: $e');
+      final status = e.response?.statusCode ?? 0;
+      final message = status == 413
+          ? 'A imagem enviada excede o tamanho permitido.'
+          : 'Falha no upload da imagem. Verifique sua conexão e tente novamente.';
+      return ResponseModel(success: false, message: message);
     } catch (e) {
       log('uploadFile error: $e');
       return ResponseModel(
         success: false,
-        message: 'Upload failed: $e',
+        message: 'Falha no upload da imagem. Tente novamente.',
       );
     }
   }

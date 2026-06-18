@@ -6,16 +6,48 @@ class _DeliveryTypeSelector extends StatelessWidget {
   final Color brandColor;
   final ValueChanged<_DeliveryType> onChange;
   final bool dense;
+  final bool allowDelivery;
+  final bool allowPickup;
 
   const _DeliveryTypeSelector({
     required this.current,
     required this.brandColor,
     required this.onChange,
     this.dense = false,
+    this.allowDelivery = true,
+    this.allowPickup = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Quando a empresa aceita apenas um método, mostra somente aquele pill
+    // (já ativo e travado) — não há o que alternar.
+    final pills = <Widget>[
+      if (allowDelivery)
+        Expanded(
+          child: _DeliveryTypePill(
+            icon: Icons.delivery_dining_rounded,
+            label: 'Entrega',
+            active: current == _DeliveryType.delivery,
+            brandColor: brandColor,
+            dense: dense,
+            onTap: () => onChange(_DeliveryType.delivery),
+          ),
+        ),
+      if (allowDelivery && allowPickup) const SizedBox(width: 4),
+      if (allowPickup)
+        Expanded(
+          child: _DeliveryTypePill(
+            icon: Icons.shopping_bag_outlined,
+            label: 'Retirar no local',
+            active: current == _DeliveryType.pickup,
+            brandColor: brandColor,
+            dense: dense,
+            onTap: () => onChange(_DeliveryType.pickup),
+          ),
+        ),
+    ];
+
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -23,31 +55,7 @@ class _DeliveryTypeSelector extends StatelessWidget {
         borderRadius: BorderRadius.circular(_DS.rFull),
         border: Border.all(color: _DS.hairline),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _DeliveryTypePill(
-              icon: Icons.delivery_dining_rounded,
-              label: 'Entrega',
-              active: current == _DeliveryType.delivery,
-              brandColor: brandColor,
-              dense: dense,
-              onTap: () => onChange(_DeliveryType.delivery),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: _DeliveryTypePill(
-              icon: Icons.shopping_bag_outlined,
-              label: 'Retirar no local',
-              active: current == _DeliveryType.pickup,
-              brandColor: brandColor,
-              dense: dense,
-              onTap: () => onChange(_DeliveryType.pickup),
-            ),
-          ),
-        ],
-      ),
+      child: Row(children: pills),
     );
   }
 }

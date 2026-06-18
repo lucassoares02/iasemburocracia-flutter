@@ -11,6 +11,7 @@ class _OrderCard extends StatefulWidget {
 
 class _OrderCardState extends State<_OrderCard> {
   bool _expanded = false;
+  bool _hovered = false;
   bool _updatingStatus = false;
 
   OrderModel get order => widget.order;
@@ -37,7 +38,8 @@ class _OrderCardState extends State<_OrderCard> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (_) => _CancelOrderModal(orderId: order.id!, ctrl: _findCtrl(), targetStatus: targetStatus),
+      builder: (_) => _CancelOrderModal(
+          orderId: order.id!, ctrl: _findCtrl(), targetStatus: targetStatus),
     );
   }
 
@@ -52,108 +54,313 @@ class _OrderCardState extends State<_OrderCard> {
   @override
   Widget build(BuildContext context) {
     final items = (order.items ?? []).cast<OrderItemModel>();
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(_DS.rXl),
-        onTap: _showDetails,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: _DS.canvas,
-            borderRadius: BorderRadius.circular(_DS.rXl),
-            border: Border.all(color: _DS.hairlineSoft),
-          ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Row(children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(color: _DS.surface, borderRadius: BorderRadius.circular(6)),
-                              child: Text('#${order.id}', style: const TextStyle(fontSize: 12, color: _DS.slate)),
-                            ),
-                            const SizedBox(width: 8),
-                            _StatusBadge(status: order.status),
-                          ]),
+    final canExpand = items.isNotEmpty;
+    final created =
+        order.createdAt != null ? _dateFmt.format(order.createdAt!) : '—';
+    final address = (order.deliveryAddress ?? '').trim();
+    final phone = (order.clientPhone ?? '').trim();
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: _showDetails,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: _hovered ? const Color(0xFFFCFCFD) : _DS.canvas,
+              borderRadius: BorderRadius.circular(14),
+              border:
+                  Border.all(color: _hovered ? _DS.hairline : _DS.hairlineSoft),
+              boxShadow: _hovered
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.035),
+                        blurRadius: 14,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 76,
+                        decoration: BoxDecoration(
+                          color: _DS.statusFg(order.status),
+                          borderRadius: BorderRadius.circular(_DS.rFull),
                         ),
-                        Text(
-                          order.createdAt != null ? _dateFmt.format(order.createdAt!) : '—',
-                          style: const TextStyle(fontSize: 12, color: _DS.stone),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(children: [
-                                const Icon(Icons.person_outline, size: 14, color: _DS.stone),
-                                const SizedBox(width: 4),
-                                Text(order.clientName ?? '—', style: const TextStyle(fontSize: 14, color: _DS.ink)),
-                              ]),
-                              if (order.clientPhone != null && order.clientPhone!.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Row(children: [
-                                  const Icon(Icons.phone_outlined, size: 13, color: _DS.stone),
-                                  const SizedBox(width: 4),
-                                  Text(order.clientPhone!, style: const TextStyle(fontSize: 13, color: _DS.steel)),
-                                ]),
-                              ],
-                            ],
-                          ),
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(_currencyFmt.format(order.total ?? 0), style: const TextStyle(fontSize: 16, color: _DS.ink)),
-                            Text('${items.length} ${items.length == 1 ? 'item' : 'itens'}', style: const TextStyle(fontSize: 12, color: _DS.stone)),
+                            Row(
+                              children: [
+                                _OrderIdPill(id: order.id, tag: order.tag),
+                                const SizedBox(width: 8),
+                                _StatusBadge(status: order.status),
+                                const SizedBox(width: 8),
+                                _OrderDeliveryTypeBadge(
+                                    deliveryType: order.deliveryType),
+                                const Spacer(),
+                                const Icon(Icons.schedule_rounded,
+                                    size: 13, color: _DS.stone),
+                                const SizedBox(width: 4),
+                                Text(created,
+                                    style: const TextStyle(
+                                        fontSize: 11, color: _DS.stone)),
+                              ],
+                            ),
+                            const SizedBox(height: 9),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        order.clientName ?? 'Cliente sem nome',
+                                        style: const TextStyle(
+                                            fontSize: 14, color: _DS.ink),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Wrap(
+                                        spacing: 10,
+                                        runSpacing: 4,
+                                        children: [
+                                          if (phone.isNotEmpty)
+                                            _InlineMeta(
+                                                icon: Icons.phone_outlined,
+                                                text: phone),
+                                          if (order.deliveryType != 'pickup' &&
+                                              address.isNotEmpty)
+                                            _InlineMeta(
+                                                icon:
+                                                    Icons.location_on_outlined,
+                                                text: address,
+                                                maxWidth: 360),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      _currencyFmt.format(order.total ?? 0),
+                                      style: const TextStyle(
+                                          fontSize: 16, color: _DS.ink),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${items.length} ${items.length == 1 ? 'item' : 'itens'}',
+                                      style: const TextStyle(
+                                          fontSize: 11, color: _DS.stone),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(child: _ItemsPreview(items: items)),
+                                const SizedBox(width: 12),
+                                if (_updatingStatus)
+                                  const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: _DS.brandBlue),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  _StatusSelector(
+                                      current: order.status ?? 1,
+                                      onChanged: _changeStatus),
+                                if (canExpand) ...[
+                                  const SizedBox(width: 6),
+                                  _CompactIconButton(
+                                    tooltip: _expanded
+                                        ? 'Ocultar itens'
+                                        : 'Ver itens',
+                                    icon: _expanded
+                                        ? Icons.expand_less
+                                        : Icons.expand_more,
+                                    onTap: () =>
+                                        setState(() => _expanded = !_expanded),
+                                  ),
+                                ],
+                                const SizedBox(width: 6),
+                                _CompactIconButton(
+                                  tooltip: 'Ver detalhes',
+                                  icon: Icons.open_in_new_rounded,
+                                  onTap: _showDetails,
+                                ),
+                              ],
+                            ),
                           ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        if (_updatingStatus)
-                          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: _DS.brandBlue))
-                        else
-                          _StatusSelector(current: order.status ?? 1, onChanged: _changeStatus),
-                        const Spacer(),
-                        GestureDetector(
-                          onTap: () => setState(() => _expanded = !_expanded),
-                          child: Row(children: [
-                            Text(
-                              _expanded ? 'Ocultar itens' : 'Ver itens',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: _DS.brandBlue,
-                              ),
-                            ),
-                            Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 16, color: _DS.brandBlue),
-                          ]),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              AnimatedCrossFade(
-                firstChild: const SizedBox.shrink(),
-                secondChild: _ItemsSection(items: items),
-                crossFadeState: _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-                duration: const Duration(milliseconds: 200),
-              ),
-            ],
+                AnimatedCrossFade(
+                  firstChild: const SizedBox.shrink(),
+                  secondChild: _ItemsSection(items: items),
+                  crossFadeState: _expanded
+                      ? CrossFadeState.showSecond
+                      : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 180),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OrderIdPill extends StatelessWidget {
+  final int? id;
+  final String? tag;
+  const _OrderIdPill({required this.id, this.tag});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = (tag != null && tag!.isNotEmpty) ? tag! : '#${id ?? '—'}';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: _DS.surface,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: _DS.hairlineSoft),
+      ),
+      child: Text(label,
+          style: const TextStyle(fontSize: 11, color: _DS.slate)),
+    );
+  }
+}
+
+class _InlineMeta extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final double? maxWidth;
+
+  const _InlineMeta({required this.icon, required this.text, this.maxWidth});
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth ?? 220),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: _DS.stone),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 12, color: _DS.steel),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ItemsPreview extends StatelessWidget {
+  final List<OrderItemModel> items;
+  const _ItemsPreview({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return const Text('Sem itens vinculados',
+          style: TextStyle(fontSize: 12, color: _DS.stone));
+    }
+    final preview = items.take(2).toList();
+    final extra = items.length - preview.length;
+    final text = [
+      ...preview.map((i) => '${i.quantity ?? 0}x ${i.name ?? 'Item'}'),
+      if (extra > 0) '+$extra',
+    ].join('  ·  ');
+    return Text(
+      text,
+      style: const TextStyle(fontSize: 12, color: _DS.slate),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+class _CompactIconButton extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _CompactIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  State<_CompactIconButton> createState() => _CompactIconButtonState();
+}
+
+class _CompactIconButtonState extends State<_CompactIconButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: _hovered ? _DS.surface : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: _hovered ? _DS.hairline : Colors.transparent),
+            ),
+            child: Icon(widget.icon,
+                size: 16, color: _hovered ? _DS.ink : _DS.stone),
           ),
         ),
       ),
@@ -169,8 +376,11 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      decoration: BoxDecoration(color: _DS.statusBg(status), borderRadius: BorderRadius.circular(_DS.rFull)),
-      child: Text(_DS.statusLabel(status), style: TextStyle(fontSize: 11, color: _DS.statusFg(status))),
+      decoration: BoxDecoration(
+          color: _DS.statusBg(status),
+          borderRadius: BorderRadius.circular(_DS.rFull)),
+      child: Text(_DS.statusLabel(status),
+          style: TextStyle(fontSize: 11, color: _DS.statusFg(status))),
     );
   }
 }
@@ -210,23 +420,42 @@ class _StatusSelector extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             color: active ? _DS.surface : null,
             child: Row(children: [
-              Container(width: 8, height: 8, decoration: BoxDecoration(color: _DS.statusFg(s), shape: BoxShape.circle)),
+              Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                      color: _DS.statusFg(s), shape: BoxShape.circle)),
               const SizedBox(width: 10),
-              Text(_DS.statusLabel(s), style: TextStyle(fontSize: 13, color: _DS.ink, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
-              if (active) ...[const Spacer(), const Icon(Icons.check, size: 14, color: _DS.brandBlue)],
+              Text(_DS.statusLabel(s),
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: _DS.ink,
+                      fontWeight:
+                          active ? FontWeight.bold : FontWeight.normal)),
+              if (active) ...[
+                const Spacer(),
+                const Icon(Icons.check, size: 14, color: _DS.brandBlue)
+              ],
             ]),
           ),
         );
       }).toList(),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(border: Border.all(color: _DS.hairline), borderRadius: BorderRadius.circular(_DS.rFull)),
+        decoration: BoxDecoration(
+            border: Border.all(color: _DS.hairline),
+            borderRadius: BorderRadius.circular(_DS.rFull)),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(width: 7, height: 7, decoration: BoxDecoration(color: _DS.statusFg(current), shape: BoxShape.circle)),
+            Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                    color: _DS.statusFg(current), shape: BoxShape.circle)),
             const SizedBox(width: 6),
-            Text(_DS.statusLabel(current), style: const TextStyle(fontSize: 12, color: _DS.ink)),
+            Text(_DS.statusLabel(current),
+                style: const TextStyle(fontSize: 12, color: _DS.ink)),
             const SizedBox(width: 4),
             const Icon(Icons.unfold_more, size: 14, color: _DS.stone),
           ],
@@ -243,12 +472,14 @@ class _ItemsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(border: Border(top: BorderSide(color: _DS.hairlineSoft))),
+      decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: _DS.hairlineSoft))),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Itens do pedido', style: TextStyle(fontSize: 12, color: _DS.slate)),
+          const Text('Itens do pedido',
+              style: TextStyle(fontSize: 12, color: _DS.slate)),
           const SizedBox(height: 10),
           ...items.map((item) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
@@ -256,16 +487,27 @@ class _ItemsSection extends StatelessWidget {
                   Container(
                     width: 24,
                     height: 24,
-                    decoration: BoxDecoration(color: _DS.surface, borderRadius: BorderRadius.circular(6)),
-                    child: Center(child: Text('${item.quantity}x', style: const TextStyle(fontSize: 10, color: _DS.slate))),
+                    decoration: BoxDecoration(
+                        color: _DS.surface,
+                        borderRadius: BorderRadius.circular(6)),
+                    child: Center(
+                        child: Text('${item.quantity}x',
+                            style: const TextStyle(
+                                fontSize: 10, color: _DS.slate))),
                   ),
                   const SizedBox(width: 10),
-                  Expanded(child: Text(item.name ?? '—', style: const TextStyle(fontSize: 13, color: _DS.ink))),
-                  Text(_currencyFmt.format(item.unitPrice ?? 0), style: const TextStyle(fontSize: 12, color: _DS.steel)),
+                  Expanded(
+                      child: Text(item.name ?? '—',
+                          style:
+                              const TextStyle(fontSize: 13, color: _DS.ink))),
+                  Text(_currencyFmt.format(item.unitPrice ?? 0),
+                      style: const TextStyle(fontSize: 12, color: _DS.steel)),
                   const SizedBox(width: 12),
                   SizedBox(
                     width: 72,
-                    child: Text(_currencyFmt.format(item.subtotal ?? 0), style: const TextStyle(fontSize: 13, color: _DS.ink), textAlign: TextAlign.end),
+                    child: Text(_currencyFmt.format(item.subtotal ?? 0),
+                        style: const TextStyle(fontSize: 13, color: _DS.ink),
+                        textAlign: TextAlign.end),
                   ),
                 ]),
               )),
@@ -306,7 +548,8 @@ class _CancelOrderModalState extends State<_CancelOrderModal> {
       await widget.ctrl.updateStatus(
         widget.orderId,
         widget.targetStatus,
-        cancelReason: _reasonCtrl.text.trim().isEmpty ? null : _reasonCtrl.text.trim(),
+        cancelReason:
+            _reasonCtrl.text.trim().isEmpty ? null : _reasonCtrl.text.trim(),
       );
       if (mounted) Navigator.pop(context);
     } finally {
@@ -318,7 +561,8 @@ class _CancelOrderModalState extends State<_CancelOrderModal> {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: _DS.canvas,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_DS.rXxxl)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(_DS.rXxxl)),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: Padding(
@@ -331,22 +575,32 @@ class _CancelOrderModalState extends State<_CancelOrderModal> {
                 Container(
                   width: 40,
                   height: 40,
-                  decoration: BoxDecoration(color: _DS.dangerLight, borderRadius: BorderRadius.circular(12)),
-                  child: const Icon(Icons.cancel_outlined, color: _DS.danger, size: 20),
+                  decoration: BoxDecoration(
+                      color: _DS.dangerLight,
+                      borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.cancel_outlined,
+                      color: _DS.danger, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                     child: Text(
-                  widget.targetStatus == 7 ? 'Rejeitar pedido' : 'Cancelar pedido',
+                  widget.targetStatus == 7
+                      ? 'Rejeitar pedido'
+                      : 'Cancelar pedido',
                   style: const TextStyle(fontSize: 18, color: _DS.ink),
                 )),
-                IconButton(icon: const Icon(Icons.close, size: 18, color: _DS.stone), onPressed: () => Navigator.pop(context)),
+                IconButton(
+                    icon: const Icon(Icons.close, size: 18, color: _DS.stone),
+                    onPressed: () => Navigator.pop(context)),
               ]),
               const SizedBox(height: 8),
-              const Text('Esta ação não pode ser desfeita. Deseja continuar?', style: TextStyle(fontSize: 14, color: _DS.steel)),
+              const Text('Esta ação não pode ser desfeita. Deseja continuar?',
+                  style: TextStyle(fontSize: 14, color: _DS.steel)),
               const SizedBox(height: 20),
               Text(
-                widget.targetStatus == 7 ? 'Motivo da rejeição (opcional)' : 'Motivo do cancelamento (opcional)',
+                widget.targetStatus == 7
+                    ? 'Motivo da rejeição (opcional)'
+                    : 'Motivo do cancelamento (opcional)',
                 style: const TextStyle(fontSize: 13, color: _DS.slate),
               ),
               const SizedBox(height: 6),
@@ -356,8 +610,13 @@ class _CancelOrderModalState extends State<_CancelOrderModal> {
                 decoration: InputDecoration(
                   hintText: 'Ex: cliente desistiu, produto indisponível...',
                   hintStyle: const TextStyle(color: _DS.muted, fontSize: 13),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _DS.hairline)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: _DS.brandBlue, width: 2)),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: _DS.hairline)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide:
+                          const BorderSide(color: _DS.brandBlue, width: 2)),
                   contentPadding: const EdgeInsets.all(12),
                   filled: true,
                   fillColor: _DS.surface,
@@ -369,7 +628,10 @@ class _CancelOrderModalState extends State<_CancelOrderModal> {
                   child: OutlinedButton(
                     onPressed: _loading ? null : () => Navigator.pop(context),
                     style: OutlinedButton.styleFrom(
-                        foregroundColor: _DS.ink, side: const BorderSide(color: _DS.hairline), shape: const StadiumBorder(), padding: const EdgeInsets.symmetric(vertical: 12)),
+                        foregroundColor: _DS.ink,
+                        side: const BorderSide(color: _DS.hairline),
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(vertical: 12)),
                     child: const Text('Voltar'),
                   ),
                 ),
@@ -377,8 +639,17 @@ class _CancelOrderModalState extends State<_CancelOrderModal> {
                 Expanded(
                   child: FilledButton(
                     onPressed: _loading ? null : _confirm,
-                    style: FilledButton.styleFrom(backgroundColor: _DS.danger, shape: const StadiumBorder(), padding: const EdgeInsets.symmetric(vertical: 12)),
-                    child: _loading ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('Cancelar pedido'),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: _DS.danger,
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(vertical: 12)),
+                    child: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Text('Cancelar pedido'),
                   ),
                 ),
               ]),
@@ -442,7 +713,8 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
       length: 2,
       child: Dialog(
         backgroundColor: _DS.canvas,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_DS.rXxxl)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_DS.rXxxl)),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760, maxHeight: 820),
           child: Padding(
@@ -455,7 +727,12 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                     Expanded(
                       child: Row(
                         children: [
-                          Text('#${order.id}', style: const TextStyle(fontSize: 20, color: _DS.ink)),
+                          Text(
+                              (order.tag != null && order.tag!.isNotEmpty)
+                                  ? order.tag!
+                                  : '#${order.id}',
+                              style: const TextStyle(
+                                  fontSize: 20, color: _DS.ink)),
                           const SizedBox(width: 10),
                           _StatusBadge(status: order.status),
                         ],
@@ -468,7 +745,9 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                   ],
                 ),
                 Text(
-                  order.createdAt != null ? _dateFmt.format(order.createdAt!) : '—',
+                  order.createdAt != null
+                      ? _dateFmt.format(order.createdAt!)
+                      : '—',
                   style: const TextStyle(fontSize: 12, color: _DS.stone),
                 ),
                 Flexible(
@@ -476,7 +755,8 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxHeight: 260),
                     child: ScrollConfiguration(
-                      behavior: const ScrollBehavior().copyWith(scrollbars: false),
+                      behavior:
+                          const ScrollBehavior().copyWith(scrollbars: false),
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.only(top: 14),
                         child: Column(
@@ -484,17 +764,20 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.person_outline, size: 16, color: _DS.stone),
+                                const Icon(Icons.person_outline,
+                                    size: 16, color: _DS.stone),
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
                                     order.clientName ?? '—',
-                                    style: const TextStyle(fontSize: 14, color: _DS.ink),
+                                    style: const TextStyle(
+                                        fontSize: 14, color: _DS.ink),
                                   ),
                                 ),
                                 Text(
                                   _currencyFmt.format(order.total ?? 0),
-                                  style: const TextStyle(fontSize: 16, color: _DS.ink),
+                                  style: const TextStyle(
+                                      fontSize: 16, color: _DS.ink),
                                 ),
                               ],
                             ),
@@ -502,9 +785,12 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                               const SizedBox(height: 6),
                               Row(
                                 children: [
-                                  const Icon(Icons.phone_outlined, size: 15, color: _DS.stone),
+                                  const Icon(Icons.phone_outlined,
+                                      size: 15, color: _DS.stone),
                                   const SizedBox(width: 6),
-                                  Text(order.clientPhone!, style: const TextStyle(fontSize: 13, color: _DS.steel)),
+                                  Text(order.clientPhone!,
+                                      style: const TextStyle(
+                                          fontSize: 13, color: _DS.steel)),
                                 ],
                               ),
                             ],
@@ -518,30 +804,39 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(color: _DS.hairlineSoft),
                                 ),
-                                child: Text(order.notes!, style: const TextStyle(fontSize: 13, color: _DS.slate)),
+                                child: Text(order.notes!,
+                                    style: const TextStyle(
+                                        fontSize: 13, color: _DS.slate)),
                               ),
                             ],
                             const SizedBox(height: 10),
                             Row(children: [
-                              _OrderDeliveryTypeBadge(deliveryType: order.deliveryType),
+                              _OrderDeliveryTypeBadge(
+                                  deliveryType: order.deliveryType),
                             ]),
-                            if (order.deliveryType != 'pickup' && (order.deliveryAddress ?? '').trim().isNotEmpty) ...[
+                            if (order.deliveryType != 'pickup' &&
+                                (order.deliveryAddress ?? '')
+                                    .trim()
+                                    .isNotEmpty) ...[
                               const SizedBox(height: 10),
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Icon(Icons.location_on_outlined, size: 15, color: _DS.stone),
+                                  const Icon(Icons.location_on_outlined,
+                                      size: 15, color: _DS.stone),
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
                                       order.deliveryAddress!,
-                                      style: const TextStyle(fontSize: 13, color: _DS.steel),
+                                      style: const TextStyle(
+                                          fontSize: 13, color: _DS.steel),
                                     ),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 10),
-                              _DeliveryAddressMap(address: order.deliveryAddress!),
+                              _DeliveryAddressMap(
+                                  address: order.deliveryAddress!),
                             ],
                           ],
                         ),
@@ -553,9 +848,14 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                 Row(
                   children: [
                     if (_updatingStatus)
-                      const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: _DS.brandBlue))
+                      const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: _DS.brandBlue))
                     else
-                      _StatusSelector(current: order.status ?? 1, onChanged: _changeStatus),
+                      _StatusSelector(
+                          current: order.status ?? 1, onChanged: _changeStatus),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -614,12 +914,15 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                         ),
                         child: items.isEmpty
                             ? const Center(
-                                child: Text('Nenhum item', style: TextStyle(fontSize: 13, color: _DS.stone)),
+                                child: Text('Nenhum item',
+                                    style: TextStyle(
+                                        fontSize: 13, color: _DS.stone)),
                               )
                             : ListView.separated(
                                 padding: const EdgeInsets.all(12),
                                 itemCount: items.length,
-                                separatorBuilder: (_, __) => const Divider(color: _DS.hairlineSoft, height: 14),
+                                separatorBuilder: (_, __) => const Divider(
+                                    color: _DS.hairlineSoft, height: 14),
                                 itemBuilder: (_, i) {
                                   final item = items[i];
                                   return Row(
@@ -627,14 +930,27 @@ class _OrderDetailsModalState extends State<_OrderDetailsModal> {
                                       Container(
                                         width: 24,
                                         height: 24,
-                                        decoration: BoxDecoration(color: _DS.surface, borderRadius: BorderRadius.circular(6)),
-                                        child: Center(child: Text('${item.quantity}x', style: const TextStyle(fontSize: 10, color: _DS.slate))),
+                                        decoration: BoxDecoration(
+                                            color: _DS.surface,
+                                            borderRadius:
+                                                BorderRadius.circular(6)),
+                                        child: Center(
+                                            child: Text('${item.quantity}x',
+                                                style: const TextStyle(
+                                                    fontSize: 10,
+                                                    color: _DS.slate))),
                                       ),
                                       const SizedBox(width: 10),
                                       Expanded(
-                                        child: Text(item.name ?? '—', style: const TextStyle(fontSize: 13, color: _DS.ink)),
+                                        child: Text(item.name ?? '—',
+                                            style: const TextStyle(
+                                                fontSize: 13, color: _DS.ink)),
                                       ),
-                                      Text(_currencyFmt.format(item.subtotal ?? 0), style: const TextStyle(fontSize: 13, color: _DS.ink)),
+                                      Text(
+                                          _currencyFmt
+                                              .format(item.subtotal ?? 0),
+                                          style: const TextStyle(
+                                              fontSize: 13, color: _DS.ink)),
                                     ],
                                   );
                                 },
@@ -720,7 +1036,8 @@ class _DeliveryMapEmbedState extends State<_DeliveryMapEmbed> {
     super.initState();
     _viewId = 'delivery-map-${DateTime.now().microsecondsSinceEpoch}';
     ui.platformViewRegistry.registerViewFactory(_viewId, (int id) {
-      final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement;
+      final iframe =
+          web.document.createElement('iframe') as web.HTMLIFrameElement;
       final encoded = Uri.encodeComponent(widget.address);
       iframe.src = 'https://www.google.com/maps?q=$encoded&output=embed';
       iframe.style.border = '0';

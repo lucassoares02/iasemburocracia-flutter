@@ -14,6 +14,8 @@ class _CartScreen extends StatelessWidget {
   final void Function(Map<String, dynamic>, double, double) onAddUpsell;
   final _DeliveryType deliveryType;
   final ValueChanged<_DeliveryType> onDeliveryTypeChange;
+  final bool allowDelivery;
+  final bool allowPickup;
   final PublicCompanyAddressModel? companyAddress;
   final String companyName;
   final int? avgPrepMinutes;
@@ -31,6 +33,8 @@ class _CartScreen extends StatelessWidget {
     required this.onAddUpsell,
     required this.deliveryType,
     required this.onDeliveryTypeChange,
+    this.allowDelivery = true,
+    this.allowPickup = true,
     required this.companyAddress,
     required this.companyName,
     required this.avgPrepMinutes,
@@ -109,6 +113,8 @@ class _CartScreen extends StatelessWidget {
                         current: deliveryType,
                         brandColor: brandColor,
                         onChange: onDeliveryTypeChange,
+                        allowDelivery: allowDelivery,
+                        allowPickup: allowPickup,
                       ),
                     ),
                     if (deliveryType == _DeliveryType.pickup) ...[
